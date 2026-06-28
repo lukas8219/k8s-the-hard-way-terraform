@@ -1,0 +1,5 @@
+kubernetes-the-hard-way/
+*/*.tfstate*
+*/.terraform/*
+*/id_ed25519.pub
+*/id_ed25519
