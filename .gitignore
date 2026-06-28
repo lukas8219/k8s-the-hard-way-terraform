@@ -3,3 +3,5 @@ kubernetes-the-hard-way/
 */.terraform/*
 */id_ed25519.pub
 */id_ed25519
+*/.venv
+*/certs

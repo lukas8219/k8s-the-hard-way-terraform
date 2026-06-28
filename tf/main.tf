@@ -1,7 +1,18 @@
+terraform {
+  required_providers {
+    ansible = {
+      source  = "ansible/ansible"
+      version = "~> 1.3"
+    }
+  }
+}
+
+provider "ansible" {}
 provider "google" {
   project = "cloud-playground-423618"
   region  = "southamerica-east1"
 }
+
 
 locals {
   public_keys = sensitive(file("${path.module}/id_ed25519.pub"))
@@ -22,7 +33,10 @@ resource "google_compute_instance" "bastion" {
     provisioning_model = "SPOT"
     preemptible        = true
     automatic_restart  = false
+    instance_termination_action = "STOP"
   }
+
+  desired_status = "RUNNING"
 
   tags = ["k8s"]
 
@@ -65,7 +79,10 @@ resource "google_compute_instance" "server" {
     provisioning_model = "SPOT"
     preemptible        = true
     automatic_restart  = false
+    instance_termination_action = "STOP"
   }
+
+  desired_status = "RUNNING"
 
   tags = ["k8s"]
 
@@ -93,7 +110,7 @@ resource "google_compute_instance" "server" {
   }
 }
 resource "google_compute_instance" "node_1" {
-  name         = "k8s-server"
+  name         = "k8s-node-1"
   machine_type = "e2-micro"
   zone         = "southamerica-east1-b"
 
@@ -101,9 +118,12 @@ resource "google_compute_instance" "node_1" {
     provisioning_model = "SPOT"
     preemptible        = true
     automatic_restart  = false
+    instance_termination_action = "STOP"
   }
 
   tags = ["k8s"]
+
+  desired_status = "RUNNING"
 
   metadata = {
     "ssh-keys" = "${local.username}:${local.public_keys}"
@@ -129,7 +149,7 @@ resource "google_compute_instance" "node_1" {
   }
 }
 resource "google_compute_instance" "node_2" {
-  name         = "k8s-server"
+  name         = "k8s-node-2"
   machine_type = "e2-micro"
   zone         = "southamerica-east1-b"
 
@@ -137,7 +157,10 @@ resource "google_compute_instance" "node_2" {
     provisioning_model = "SPOT"
     preemptible        = true
     automatic_restart  = false
+    instance_termination_action = "STOP"
   }
+
+  desired_status = "RUNNING"
 
   tags = ["k8s"]
 
@@ -262,4 +285,53 @@ resource "google_dns_record_set" "node-2" {
   managed_zone = google_dns_managed_zone.k8s_dns_zone.name
 
   rrdatas = [google_compute_address.k8s_node_2_internal_ip.address]
+}
+
+resource "ansible_host" "bastion" {
+  name   = "bastion"
+  groups = ["bastion"]
+
+  variables = {
+    external_ip = google_compute_instance.bastion.network_interface[0].access_config[0].nat_ip
+    internal_ip = google_compute_instance.bastion.network_interface[0].network_ip
+    ansible_host = google_compute_instance.bastion.network_interface[0].access_config[0].nat_ip
+  }
+}
+resource "ansible_host" "server" {
+  name   = "server"
+  groups = [ansible_group.worker_nodes.name, ansible_group.k8s_internal_nodes.name, "control-plane"]
+
+  variables = {
+    internal_ip = google_compute_instance.server.network_interface[0].network_ip
+    ansible_host = google_compute_instance.server.network_interface[0].network_ip
+  }
+}
+resource "ansible_host" "node_1" {
+  name   = "node_1"
+  groups = [ansible_group.worker_nodes.name, ansible_group.k8s_internal_nodes.name]
+
+  variables = {
+    internal_ip = google_compute_instance.node_1.network_interface[0].network_ip
+    ansible_host = google_compute_instance.node_1.network_interface[0].network_ip
+  }
+}
+resource "ansible_host" "node_2" {
+  name   = "node_2"
+  groups = [ansible_group.worker_nodes.name, ansible_group.k8s_internal_nodes.name]
+
+  variables = {
+    internal_ip = google_compute_instance.node_2.network_interface[0].network_ip
+    ansible_host = google_compute_instance.node_2.network_interface[0].network_ip
+  }
+}
+
+resource "ansible_group" "worker_nodes" {
+  name = "worker-nodes"
+}
+
+resource "ansible_group" "k8s_internal_nodes" {
+  name = "k8s_internal_nodes"
+  variables = {
+    ansible_ssh_common_args = "-o ProxyCommand=\"ssh -p 22 -W %h:%p -q ${google_compute_instance.bastion.network_interface[0].access_config[0].nat_ip}\""
+  }
 }

@@ -1,0 +1,24 @@
+---
+- name: Setup Self-Signed Certificate Authority
+  connection: local
+  hosts: localhost
+  tasks:
+    - name: Create Certs folder
+      ansible.builtin.shell: "mkdir -p ./certs"
+    - name: Create Certificates
+      module_defaults:
+        ansible.builtin.shell:
+          chdir: ./certs
+      block:
+        - name: Generate the Private Key
+          ansible.builtin.shell:
+            cmd: "openssl genrsa -out ca.key 4096"
+        - name: Generate CA
+          ansible.builtin.shell:
+            cmd: |
+              #!/bin/bash
+              openssl req -x509 -new -sha512 -noenc \
+                -key ca.key -days 3653 \
+                -config ../../kubernetes-the-hard-way/ca.conf \
+                -out ca.crt
+- name: 
