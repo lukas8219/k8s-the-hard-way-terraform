@@ -332,6 +332,6 @@ resource "ansible_group" "worker_nodes" {
 resource "ansible_group" "k8s_internal_nodes" {
   name = "k8s_internal_nodes"
   variables = {
-    ansible_ssh_common_args = "-o ProxyCommand=\"ssh -p 22 -W %h:%p -q ${google_compute_instance.bastion.network_interface[0].access_config[0].nat_ip}\""
+    ansible_ssh_common_args = "-o ProxyCommand=\"ssh -i id_ed25519 -p 22 -W %h:%p -q ${google_compute_instance.bastion.network_interface[0].access_config[0].nat_ip}\""
   }
 }
