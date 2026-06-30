@@ -12,7 +12,7 @@
       register: arch
       delegate_to: bastion
     - name: Setup folder
-      ansible.builtin.file:
+      file:
         path: ./downloads/{{ item }}
         state: directory
         mode: '0755'
@@ -91,21 +91,21 @@
   tasks:
     - name: Create Certs folder
       register: certs_folder
-      ansible.builtin.file:
+      file:
         path: ./certs
         state: directory
         mode: '0755'
     - name: Create Certificates
       module_defaults:
-        ansible.builtin.shell:
+        shell:
           chdir: ./certs
       when: certs_folder.changed
       block:
         - name: Generate the Private Key
-          ansible.builtin.shell:
+          shell:
             cmd: "openssl genrsa -out ca.key 4096"
         - name: Generate CA
-          ansible.builtin.shell:
+          shell:
             cmd: |
               #!/bin/bash
               openssl req -x509 -new -sha512 -noenc \
@@ -113,7 +113,7 @@
                 -config ../kubernetes-the-hard-way/ca.conf \
                 -out ca.crt
         - name: Generate All Certificates
-          ansible.builtin.shell:
+          shell:
             cmd: |
               openssl genrsa -out "{{ item }}.key" 4096
               openssl req -new -key "{{ item }}.key" -sha256 \
@@ -140,7 +140,7 @@
     - name: Create /var/lib/kubelet
       become: true
       become_user: root
-      ansible.builtin.file:
+      file:
         path: /var/lib/kubelet
         state: directory
         mode: '0755'
@@ -149,15 +149,15 @@
       become_user: root
       block:
       - name: Copy CA
-        ansible.builtin.copy:
+        copy:
           src: ./certs/ca.crt
           dest: /var/lib/kubelet/ca.crt
       - name: Copy Cert
-        ansible.builtin.copy:
+        copy:
           src: "./certs/{{ ansible_facts['hostname'] }}.crt"
           dest: /var/lib/kubelet/kubelet.crt
       - name: Copy Private Key
-        ansible.builtin.copy:
+        copy:
           src: "./certs/{{ ansible_facts['hostname'] }}.key"
           dest: /var/lib/kubelet/kubelet.key
 - name: Configure Control Plane Certificates
@@ -166,7 +166,7 @@
   become_user: root
   tasks:
     - name: Copy all Certificates
-      ansible.builtin.copy:
+      copy:
         src: "./certs/{{ item }}"
         dest: ~/
         owner: root
@@ -185,7 +185,7 @@
   tasks:
     - name: Generate Kube Config
       module_defaults:
-        ansible.builtin.shell:
+        shell:
           chdir: ./certs
       shell:
         cmd: |
@@ -229,14 +229,14 @@
     - name: Create /var/lib/kubelet
       become: true
       become_user: root
-      ansible.builtin.file:
+      file:
         path: /var/lib/kubelet
         state: directory
         mode: '0755'
     - name: Create /var/lib/kube-proxy
       become: true
       become_user: root
-      ansible.builtin.file:
+      file:
         path: /var/lib/kube-proxy
         state: directory
         mode: '0755'
@@ -245,7 +245,7 @@
       become_user: root
       block:
       - name: Copy Kube Proxy
-        ansible.builtin.copy:
+        copy:
           src: "./certs/kube-proxy.kubeconfig"
           dest: /var/lib/kube-proxy/kube-proxy.kubeconfig
       - name: Copy {{ ansible_facts['hostname'] }} Kube Config
@@ -258,7 +258,7 @@
   become_user: root
   tasks:
     - name: Copy {{ item }}
-      ansible.builtin.copy:
+      copy:
         src: "./certs/{{ item }}"
         dest: ~/
         owner: root
@@ -272,7 +272,7 @@
   hosts: localhost
   tasks:
     - name: Generate Encryption Key
-      ansible.builtin.command: openssl rand -base64 32
+      command: openssl rand -base64 32
       register: encryption_key
     - name: Generate Config
       shell: envsubst < kubernetes-the-hard-way/configs/encryption-config.yaml
@@ -445,7 +445,7 @@
   hosts: localhost
   vars:
     nodes: "{{ groups['worker-nodes'] }}"
-    bridge_file: "{{ lookup('ansible.builtin.file', 'kubernetes-the-hard-way/configs/10-bridge.conf') }}"
+    bridge_file: "{{ lookup('file', 'kubernetes-the-hard-way/configs/10-bridge.conf') }}"
     files:
       - src: downloads/worker/crictl
         dest: /usr/local/bin/
@@ -512,7 +512,7 @@
       become_user: root
     - name: Configure CNI Subnet
       copy:
-        content: "{{ lookup('ansible.builtin.file', 'kubernetes-the-hard-way/configs/10-bridge.conf') | replace('SUBNET', hostvars[item].subnet) }}"
+        content: "{{ lookup('file', 'kubernetes-the-hard-way/configs/10-bridge.conf') | replace('SUBNET', hostvars[item].subnet) }}"
         dest: /etc/cni/net.d/10-bridge.conf
         mode: 700
       become: yes
@@ -616,7 +616,7 @@
   become_user: root
   tasks:
     - name: Wait until all Kubernetes nodes are Ready
-      ansible.builtin.command: kubectl get nodes -o json --kubeconfig /home/root/admin.kubeconfig
+      command: kubectl get nodes -o json --kubeconfig /home/root/admin.kubeconfig
       register: kubectl_nodes
       changed_when: false
       retries: 10
