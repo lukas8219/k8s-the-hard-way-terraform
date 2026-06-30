@@ -50,7 +50,12 @@
       copy:
         src: downloads/{{ item.src }}
         remote_src: yes
-        dest: downloads/{{ item.dest }}/{{ item.src }}
+        dest: >-
+          {{
+            'downloads/' ~ item.dest
+            if (item.skip_append | default(false) | bool)
+            else 'downloads/' ~ item.dest ~ '/' ~ item.src
+          }}
       loop:
         - { src: 'etcdctl' , dest: 'client'}
         - { src: 'kubectl' , dest: 'client'}
@@ -60,7 +65,7 @@
         - { src: 'kube-scheduler' , dest: 'controller'}
         - { src: 'kubelet' , dest: 'worker'}
         - { src: 'kube-proxy' , dest: 'worker'}
-        - { src: 'runc.{{ arch.stdout }}' , dest: 'worker'}
+        - { src: 'runc.{{ arch.stdout }}' , dest: 'worker/runc', skip_append: 'true' }
     - name: Make downloaded binaries executable
       file:
         path: downloads
@@ -124,7 +129,7 @@
                 -out "{{ item }}.crt"
           loop:
             - admin
-            - node-1
+            - node-1 # We need to sum the vars {{ list + list }} to dynamically generate this
             - node-2
             - kube-proxy
             - kube-scheduler
@@ -270,10 +275,11 @@
         ENCRYPTION_KEY: "{{ encryption_key.stdout | trim }}"
     - name: Generate Kubernetes File
       file:
-        path: /var/lib/kubernetes
+        path: /var/lib/kubernetes/
         group: root
         owner: root
-        mode: 700
+        mode: 755
+        state: directory
       become: yes
       become_user: root
       delegate_to: "{{ groups['control-plane'][0] }}"
@@ -429,3 +435,196 @@
       become: yes
       become_user: root
       delegate_to: server
+- name: Configure Network on Worker Nodes
+  hosts: localhost
+  vars:
+    nodes: "{{ groups['worker-nodes'] }}"
+    bridge_file: "{{ lookup('ansible.builtin.file', '../kubernetes-the-hard-way/configs/10-bridge.conf') }}"
+    files:
+      - src: downloads/worker/crictl
+        dest: /usr/local/bin/
+        mode: 755
+      - src: downloads/worker/kubelet
+        dest: /usr/local/bin/
+        mode: 755
+      - src: downloads/worker/kube-proxy
+        dest: /usr/local/bin/
+        mode: 755
+      - src: downloads/worker/runc
+        dest: /usr/local/bin/
+        mode: 755
+      - src: downloads/worker/containerd
+        dest: /bin/
+        mode: 755
+      - src: downloads/worker/containerd-stress
+        dest: /bin/
+        mode: 755
+      - src: downloads/worker/containerd-shim-runc-v2
+        dest: /bin/
+        mode: 755
+      - src: downloads/cni-plugins/
+        dest: /opt/cni/bin
+        recurse: yes
+      # Folders and Configs
+      - src: ../kubernetes-the-hard-way/configs/containerd-config.toml
+        dest: /etc/containerd/config.toml
+      - src: ../kubernetes-the-hard-way/units/containerd.service
+        dest: /etc/systemd/system/
+      - src: ../kubernetes-the-hard-way/configs/kubelet-config.yaml
+        dest: /var/lib/kubelet/
+      - src: ../kubernetes-the-hard-way/units/kubelet.service
+        dest: /etc/systemd/system/
+      - src: ../kubernetes-the-hard-way/configs/kube-proxy-config.yaml
+        dest: /var/lib/kube-proxy/
+      - src: ../kubernetes-the-hard-way/units/kube-proxy.service
+        dest: /etc/systemd/system/
+      - src: certs/kube-proxy.kubeconfig
+        dest: /var/lib/kube-proxy/kubeconfig
+  tasks:
+    - name: Setup Worker Kubernetes Folders
+      vars:
+        folders:
+          - /var/lib/kube-proxy/
+          - /var/lib/kubelet/
+          - /etc/containerd/
+          - /etc/sysctl.d/
+          - /etc/modules-load.d/
+          - /etc/cni/net.d/
+          - /opt/cni/bin/
+          - /var/run/kubernetes
+          - /var/lib/kubernetes
+          - /cni-plugins/
+      file:
+        state: directory
+        owner: root
+        group: root
+        mode: 700
+        path: "{{ item.1 }}"
+      delegate_to: "{{ item.0 }}"
+      loop: "{{ nodes | product(folders) | list }}"
+      become: yes
+      become_user: root
+    - name: Configure CNI Subnet
+      copy:
+        content: "{{ lookup('ansible.builtin.file', '../kubernetes-the-hard-way/configs/10-bridge.conf') | replace('SUBNET', hostvars[item].subnet) }}"
+        dest: /etc/cni/net.d/10-bridge.conf
+        mode: 700
+      become: yes
+      become_user: root
+      loop: "{{ nodes }}"
+      delegate_to: "{{ item }}"
+    - name: Copy Loopback Config
+      copy:
+        src: ../kubernetes-the-hard-way/configs/99-loopback.conf
+        dest: /etc/cni/net.d/99-loopback.conf
+        mode: 700
+      become: yes
+      become_user: root
+      loop: "{{ nodes }}"
+      delegate_to: "{{ item }}"
+    - name: Install dependencies
+      vars:
+        dependencies:
+          - conntrack
+          - socat
+          - ipset
+          - kmod
+          - iptables
+          - nftables
+      apt:
+        name: "{{ item.1 }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      delegate_to: "{{ item.0 }}"
+      loop: "{{ nodes | product(dependencies) | list }}"
+      become: yes
+      become_user: root
+      # disable swap persistent
+      # enable br-filter
+    - name: Copy All files to Worker Nodes
+      copy:
+        src: "{{ item.1.src }}"
+        dest: "{{ item.1.dest }}"
+        mode: "{{ item.1.mode | default('0700') }}"
+      delegate_to: "{{ item.0 }}"
+      loop: "{{ nodes | product(files) | list }}"
+      become: yes
+      become_user: root
+    - name: Copy Kubeconfig to Worker Nodes 
+      copy:
+        src: "certs/{{ item | regex_replace('_', '-') }}.kubeconfig"
+        dest: /var/lib/kubelet/kubeconfig 
+        owner: root
+        group: root
+      delegate_to: "{{ item }}"
+      loop: "{{ nodes }}"
+      become: yes
+      become_user: root
+    - name: Reload Systemd Daemon
+      systemd_service:
+        daemon_reload: true
+      become: yes
+      become_user: root
+      delegate_to: "{{ item }}"
+      loop: "{{ nodes }}"
+    - name: Start Services
+      vars:
+        units:
+          - kubelet
+          - containerd
+          - kube-proxy
+      systemd_service:
+        name: "{{ item.1 }}"
+        enabled: true
+        state: started
+      become: yes
+      become_user: root
+      delegate_to: "{{ item.0 }}"
+      loop: "{{ nodes | product(units) | list }}"
+    - name: Enable Kernel Module
+      community.general.modprobe:
+        name: br-netfilter
+        state: present
+      become: yes
+      become_user: root
+      delegate_to: "{{ item }}"
+      loop: "{{ nodes }}"
+    - name: Configure br-netfilter
+      shell:
+        cmd: |
+          mkdir -p /etc/modules-load.d/
+          echo "br-netfilter" >> /etc/modules-load.d/modules.conf
+          echo "net.bridge.bridge-nf-call-iptables = 1" \
+            >> /etc/sysctl.d/kubernetes.conf
+          echo "net.bridge.bridge-nf-call-ip6tables = 1" \
+            >> /etc/sysctl.d/kubernetes.conf
+          sysctl -p /etc/sysctl.d/kubernetes.conf
+      become: yes
+      become_user: root
+      delegate_to: "{{ item }}"
+      loop: "{{ nodes }}"
+- name: Ensure Nodes are registered
+  hosts: bastion
+  become: yes
+  become_user: root
+  tasks:
+    - name: Wait until all Kubernetes nodes are Ready
+      ansible.builtin.command: kubectl get nodes -o json --kubeconfig /home/root/admin.kubeconfig
+      register: kubectl_nodes
+      changed_when: false
+      retries: 10
+      delay: 10
+      until: >
+        ((kubectl_nodes.stdout | from_json)['items'] | length > 0) and
+        (
+          (
+            (kubectl_nodes.stdout | from_json)['items']
+            | map(attribute='status.conditions')
+            | map('selectattr', 'type', 'equalto', 'Ready')
+            | map('selectattr', 'status', 'equalto', 'True')
+            | map('list')
+            | map('length')
+            | min
+          ) > 0
+        )

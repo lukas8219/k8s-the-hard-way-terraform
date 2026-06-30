@@ -16,7 +16,7 @@ provider "google" {
 
 locals {
   public_keys = sensitive(file("${path.module}/id_ed25519.pub"))
-  username = "lucas.polesello" // You can hack this to inject $HOSTNAME output so SSH runs smoothly
+  username    = "lucas.polesello" // You can hack this to inject $HOSTNAME output so SSH runs smoothly
 }
 
 resource "google_service_account" "default" {
@@ -30,9 +30,9 @@ resource "google_compute_instance" "bastion" {
   zone         = "southamerica-east1-b"
 
   scheduling {
-    provisioning_model = "SPOT"
-    preemptible        = true
-    automatic_restart  = false
+    provisioning_model          = "SPOT"
+    preemptible                 = true
+    automatic_restart           = false
     instance_termination_action = "STOP"
   }
 
@@ -49,7 +49,7 @@ resource "google_compute_instance" "bastion" {
   boot_disk {
     initialize_params {
       image = "debian-cloud/debian-11"
-      type = "pd-standard"
+      type  = "pd-standard"
     }
   }
 
@@ -76,9 +76,9 @@ resource "google_compute_instance" "server" {
   zone         = "southamerica-east1-b"
 
   scheduling {
-    provisioning_model = "SPOT"
-    preemptible        = true
-    automatic_restart  = false
+    provisioning_model          = "SPOT"
+    preemptible                 = true
+    automatic_restart           = false
     instance_termination_action = "STOP"
   }
 
@@ -93,7 +93,7 @@ resource "google_compute_instance" "server" {
   boot_disk {
     initialize_params {
       image = "debian-cloud/debian-11"
-      type = "pd-standard"
+      type  = "pd-standard"
     }
   }
 
@@ -115,9 +115,9 @@ resource "google_compute_instance" "node_1" {
   zone         = "southamerica-east1-b"
 
   scheduling {
-    provisioning_model = "SPOT"
-    preemptible        = true
-    automatic_restart  = false
+    provisioning_model          = "SPOT"
+    preemptible                 = true
+    automatic_restart           = false
     instance_termination_action = "STOP"
   }
 
@@ -132,7 +132,7 @@ resource "google_compute_instance" "node_1" {
   boot_disk {
     initialize_params {
       image = "debian-cloud/debian-11"
-      type = "pd-standard"
+      type  = "pd-standard"
     }
   }
 
@@ -154,9 +154,9 @@ resource "google_compute_instance" "node_2" {
   zone         = "southamerica-east1-b"
 
   scheduling {
-    provisioning_model = "SPOT"
-    preemptible        = true
-    automatic_restart  = false
+    provisioning_model          = "SPOT"
+    preemptible                 = true
+    automatic_restart           = false
     instance_termination_action = "STOP"
   }
 
@@ -171,7 +171,7 @@ resource "google_compute_instance" "node_2" {
   boot_disk {
     initialize_params {
       image = "debian-cloud/debian-11"
-      type = "pd-standard"
+      type  = "pd-standard"
     }
   }
 
@@ -243,25 +243,41 @@ resource "google_compute_address" "node_2_internal" {
   address      = "10.200.3.2"
 }
 
+resource "google_compute_router" "router" {
+  name    = "router"
+  network = google_compute_network.network.id
+}
+
+resource "google_compute_router_nat" "nat" {
+  name                               = "nat"
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+  router                             = google_compute_router.router.name
+
+  log_config {
+    enable = false
+    filter = "ERRORS_ONLY"
+  }
+}
+
 resource "google_compute_firewall" "bastion_ssh" {
-  name        = "bastion-ssh"
-  network     = google_compute_network.network.id
+  name    = "bastion-ssh"
+  network = google_compute_network.network.id
 
   allow {
-    protocol  = "tcp"
-    ports     = ["22"]
+    protocol = "tcp"
+    ports    = ["22"]
   }
 
   source_ranges = ["0.0.0.0/0"]
-  target_tags = ["k8s"]
+  target_tags   = ["k8s"]
 }
 resource "google_compute_firewall" "api-server" {
-  name        = "api-server"
-  network     = google_compute_network.network.id
+  name    = "api-server"
+  network = google_compute_network.network.id
 
   allow {
-    protocol  = "tcp"
-    ports     = ["6443"]
+    protocol = "tcp"
   }
 
   source_tags = ["k8s"]
@@ -269,14 +285,14 @@ resource "google_compute_firewall" "api-server" {
 }
 
 resource "google_dns_managed_zone" "dns_zone" {
-  name        = "k8s-dns-zone"
-  dns_name    = "kubernetes.local."
+  name     = "k8s-dns-zone"
+  dns_name = "kubernetes.local."
   labels = {
     name = "k8s"
   }
   visibility = "private"
   private_visibility_config {
-    networks { 
+    networks {
       network_url = google_compute_network.network.self_link
     }
   }
@@ -317,8 +333,8 @@ resource "ansible_host" "bastion" {
   groups = ["bastion"]
 
   variables = {
-    external_ip = google_compute_instance.bastion.network_interface[0].access_config[0].nat_ip
-    internal_ip = google_compute_instance.bastion.network_interface[0].network_ip
+    external_ip  = google_compute_instance.bastion.network_interface[0].access_config[0].nat_ip
+    internal_ip  = google_compute_instance.bastion.network_interface[0].network_ip
     ansible_host = google_compute_instance.bastion.network_interface[0].access_config[0].nat_ip
   }
 }
@@ -327,7 +343,7 @@ resource "ansible_host" "server" {
   groups = [ansible_group.k8s_internal_nodes.name, "control-plane"]
 
   variables = {
-    internal_ip = google_compute_instance.server.network_interface[0].network_ip
+    internal_ip  = google_compute_instance.server.network_interface[0].network_ip
     ansible_host = google_compute_instance.server.network_interface[0].network_ip
   }
 }
@@ -336,8 +352,9 @@ resource "ansible_host" "node_1" {
   groups = [ansible_group.worker_nodes.name, ansible_group.k8s_internal_nodes.name]
 
   variables = {
-    internal_ip = google_compute_instance.node_1.network_interface[0].network_ip
+    internal_ip  = google_compute_instance.node_1.network_interface[0].network_ip
     ansible_host = google_compute_instance.node_1.network_interface[0].network_ip
+    subnet       = google_compute_subnetwork.node_1.ip_cidr_range
   }
 }
 resource "ansible_host" "node_2" {
@@ -345,8 +362,9 @@ resource "ansible_host" "node_2" {
   groups = [ansible_group.worker_nodes.name, ansible_group.k8s_internal_nodes.name]
 
   variables = {
-    internal_ip = google_compute_instance.node_2.network_interface[0].network_ip
+    internal_ip  = google_compute_instance.node_2.network_interface[0].network_ip
     ansible_host = google_compute_instance.node_2.network_interface[0].network_ip
+    subnet       = google_compute_subnetwork.node_2.ip_cidr_range
   }
 }
 
