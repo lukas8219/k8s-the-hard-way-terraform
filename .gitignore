@@ -6,3 +6,4 @@ id_ed25519
 .venv
 certs
 downloads
+**/.terraform/
