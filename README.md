@@ -18,7 +18,7 @@ The idea is to trasnform Kelsey Hightowwer KTHW into something fully automated
 source .venv/bin/activate
 gcloud init
 gcloud auth application-default login
-make gen-ssh-keys
+make gen-keys
 make tf
 make ping
 make playbook

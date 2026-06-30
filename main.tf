@@ -148,8 +148,8 @@ resource "google_compute_instance" "node_1" {
     scopes = ["cloud-platform"]
   }
 }
-resource "google_compute_instance" "node_2" {
-  name         = "node-2"
+resource "google_compute_instance" "node_0" {
+  name         = "node-0"
   machine_type = "e2-micro"
   zone         = "southamerica-east1-b"
 
@@ -177,8 +177,8 @@ resource "google_compute_instance" "node_2" {
 
   network_interface {
     network    = google_compute_network.network.id
-    subnetwork = google_compute_subnetwork.node_2.id
-    network_ip = google_compute_address.node_2_internal.address
+    subnetwork = google_compute_subnetwork.node_0.id
+    network_ip = google_compute_address.node_0_internal.address
   }
 
   service_account {
@@ -230,15 +230,15 @@ resource "google_compute_address" "node_1_internal" {
   address_type = "INTERNAL"
   address      = "10.200.2.2"
 }
-resource "google_compute_subnetwork" "node_2" {
-  name          = "k8s-subnet-node-2"
+resource "google_compute_subnetwork" "node_0" {
+  name          = "k8s-subnet-node-0"
   ip_cidr_range = "10.200.3.0/24"
   network       = google_compute_network.network.id
 }
 
-resource "google_compute_address" "node_2_internal" {
-  name         = "k8s-node-2-internal-ip"
-  subnetwork   = google_compute_subnetwork.node_2.id
+resource "google_compute_address" "node_0_internal" {
+  name         = "k8s-node-0-internal-ip"
+  subnetwork   = google_compute_subnetwork.node_0.id
   address_type = "INTERNAL"
   address      = "10.200.3.2"
 }
@@ -318,14 +318,14 @@ resource "google_dns_record_set" "node-1" {
   rrdatas = [google_compute_address.node_1_internal.address]
 }
 
-resource "google_dns_record_set" "node-2" {
-  name = "node-2.${google_dns_managed_zone.dns_zone.dns_name}"
+resource "google_dns_record_set" "node-0" {
+  name = "node-0.${google_dns_managed_zone.dns_zone.dns_name}"
   type = "A"
   ttl  = 300
 
   managed_zone = google_dns_managed_zone.dns_zone.name
 
-  rrdatas = [google_compute_address.node_2_internal.address]
+  rrdatas = [google_compute_address.node_0_internal.address]
 }
 
 resource "ansible_host" "bastion" {
@@ -357,14 +357,14 @@ resource "ansible_host" "node_1" {
     subnet       = google_compute_subnetwork.node_1.ip_cidr_range
   }
 }
-resource "ansible_host" "node_2" {
-  name   = "node_2"
+resource "ansible_host" "node_0" {
+  name   = "node_0"
   groups = [ansible_group.worker_nodes.name, ansible_group.k8s_internal_nodes.name]
 
   variables = {
-    internal_ip  = google_compute_instance.node_2.network_interface[0].network_ip
-    ansible_host = google_compute_instance.node_2.network_interface[0].network_ip
-    subnet       = google_compute_subnetwork.node_2.ip_cidr_range
+    internal_ip  = google_compute_instance.node_0.network_interface[0].network_ip
+    ansible_host = google_compute_instance.node_0.network_interface[0].network_ip
+    subnet       = google_compute_subnetwork.node_0.ip_cidr_range
   }
 }
 

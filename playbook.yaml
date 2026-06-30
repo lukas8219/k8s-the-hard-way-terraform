@@ -71,7 +71,7 @@
         path: downloads
         recurse: yes
         mode: 0755
-    - name: Copy Client stuff to Bastion
+    - name: Copy Kubectl to Bastion
       copy:
         src: "{{ item.src }}"
         dest: "{{ item.dest }}"
@@ -85,8 +85,6 @@
         - src: downloads/client/kubectl
           dest: /usr/local/bin/
           mode: '0755'
-        - src: certs/admin.kubeconfig
-          dest: /home/root/
 - name: Setup Self-Signed Certificate Authority
   connection: local
   hosts: localhost
@@ -112,14 +110,14 @@
               #!/bin/bash
               openssl req -x509 -new -sha512 -noenc \
                 -key ca.key -days 3653 \
-                -config ../../kubernetes-the-hard-way/ca.conf \
+                -config ../kubernetes-the-hard-way/ca.conf \
                 -out ca.crt
         - name: Generate All Certificates
           ansible.builtin.shell:
             cmd: |
               openssl genrsa -out "{{ item }}.key" 4096
               openssl req -new -key "{{ item }}.key" -sha256 \
-                -config "../../kubernetes-the-hard-way/ca.conf" -section  {{ item }} \
+                -config "../kubernetes-the-hard-way/ca.conf" -section  {{ item }} \
                 -out "{{ item }}.csr"
               openssl x509 -req -days 3653 -in "{{ item }}.csr" \
                 -copy_extensions copyall \
@@ -129,8 +127,8 @@
                 -out "{{ item }}.crt"
           loop:
             - admin
-            - node-1 # We need to sum the vars {{ list + list }} to dynamically generate this
-            - node-2
+            - node-0 # We need to sum the vars {{ list + list }} to dynamically generate this
+            - node-1
             - kube-proxy
             - kube-scheduler
             - kube-controller-manager
@@ -211,12 +209,20 @@
           kubectl config use-context default \
             --kubeconfig={{ item.host }}.kubeconfig
       loop:
+        - { host: 'node-0', prefix: 'system:node:' }
         - { host: 'node-1', prefix: 'system:node:' }
-        - { host: 'node-2', prefix: 'system:node:' }
         - { host: 'admin' }
         - { host: 'kube-scheduler', prefix: 'system:' }
         - { host: 'kube-controller-manager', prefix: 'system:' }
         - { host: 'kube-proxy', prefix: 'system:' }
+    - name: Copy Client stuff to Bastion
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+      delegate_to: bastion
+      loop:
+        - src: certs/admin.kubeconfig
+          dest: ~/admin.kubeconfig
 - name: Distributed Kube Config 
   hosts: worker-nodes
   tasks:
@@ -243,7 +249,7 @@
           src: "./certs/kube-proxy.kubeconfig"
           dest: /var/lib/kube-proxy/kube-proxy.kubeconfig
       - name: Copy {{ ansible_facts['hostname'] }} Kube Config
-        ansible.builtin.copy:
+        copy:
           src: "./certs/{{ ansible_facts['hostname'] }}.kubeconfig"
           dest: "/var/lib/kubelet/{{ ansible_facts['hostname'] }}.kubeconfig"
 - name: Configure Control-Plane KubeConfig 
@@ -439,7 +445,7 @@
   hosts: localhost
   vars:
     nodes: "{{ groups['worker-nodes'] }}"
-    bridge_file: "{{ lookup('ansible.builtin.file', '../kubernetes-the-hard-way/configs/10-bridge.conf') }}"
+    bridge_file: "{{ lookup('ansible.builtin.file', 'kubernetes-the-hard-way/configs/10-bridge.conf') }}"
     files:
       - src: downloads/worker/crictl
         dest: /usr/local/bin/
@@ -466,17 +472,17 @@
         dest: /opt/cni/bin
         recurse: yes
       # Folders and Configs
-      - src: ../kubernetes-the-hard-way/configs/containerd-config.toml
+      - src: kubernetes-the-hard-way/configs/containerd-config.toml
         dest: /etc/containerd/config.toml
-      - src: ../kubernetes-the-hard-way/units/containerd.service
+      - src: kubernetes-the-hard-way/units/containerd.service
         dest: /etc/systemd/system/
-      - src: ../kubernetes-the-hard-way/configs/kubelet-config.yaml
+      - src: kubernetes-the-hard-way/configs/kubelet-config.yaml
         dest: /var/lib/kubelet/
-      - src: ../kubernetes-the-hard-way/units/kubelet.service
+      - src: kubernetes-the-hard-way/units/kubelet.service
         dest: /etc/systemd/system/
-      - src: ../kubernetes-the-hard-way/configs/kube-proxy-config.yaml
+      - src: kubernetes-the-hard-way/configs/kube-proxy-config.yaml
         dest: /var/lib/kube-proxy/
-      - src: ../kubernetes-the-hard-way/units/kube-proxy.service
+      - src: kubernetes-the-hard-way/units/kube-proxy.service
         dest: /etc/systemd/system/
       - src: certs/kube-proxy.kubeconfig
         dest: /var/lib/kube-proxy/kubeconfig
@@ -506,7 +512,7 @@
       become_user: root
     - name: Configure CNI Subnet
       copy:
-        content: "{{ lookup('ansible.builtin.file', '../kubernetes-the-hard-way/configs/10-bridge.conf') | replace('SUBNET', hostvars[item].subnet) }}"
+        content: "{{ lookup('ansible.builtin.file', 'kubernetes-the-hard-way/configs/10-bridge.conf') | replace('SUBNET', hostvars[item].subnet) }}"
         dest: /etc/cni/net.d/10-bridge.conf
         mode: 700
       become: yes
@@ -515,7 +521,7 @@
       delegate_to: "{{ item }}"
     - name: Copy Loopback Config
       copy:
-        src: ../kubernetes-the-hard-way/configs/99-loopback.conf
+        src: kubernetes-the-hard-way/configs/99-loopback.conf
         dest: /etc/cni/net.d/99-loopback.conf
         mode: 700
       become: yes
@@ -532,12 +538,12 @@
           - iptables
           - nftables
       apt:
-        name: "{{ item.1 }}"
+        name: "{{ dependencies }}"
         state: present
         update_cache: true
         cache_valid_time: 3600
-      delegate_to: "{{ item.0 }}"
-      loop: "{{ nodes | product(dependencies) | list }}"
+      delegate_to: "{{ item }}"
+      loop: "{{ nodes }}"
       become: yes
       become_user: root
       # disable swap persistent
