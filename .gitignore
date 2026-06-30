@@ -5,3 +5,4 @@ kubernetes-the-hard-way/
 */id_ed25519
 */.venv
 */certs
+*/downloads
