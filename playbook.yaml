@@ -86,7 +86,6 @@
           dest: /usr/local/bin/
           mode: '0755'
 - name: Setup Self-Signed Certificate Authority
-  connection: local
   hosts: localhost
   tasks:
     - name: Create Certs folder
@@ -181,7 +180,6 @@
         - service-accounts.key
 - name: Generate Kube Config
   hosts: localhost
-  connection: local
   tasks:
     - name: Generate Kube Config
       module_defaults:
@@ -220,6 +218,8 @@
         src: "{{ item.src }}"
         dest: "{{ item.dest }}"
       delegate_to: bastion
+      become: yes
+      become_user: root
       loop:
         - src: certs/admin.kubeconfig
           dest: ~/admin.kubeconfig
@@ -610,20 +610,20 @@
       become_user: root
       delegate_to: "{{ item }}"
       loop: "{{ nodes }}"
-- name: Ensure Nodes are registered
+- name: Ensure Kubernetes State
   hosts: bastion
   become: yes
   become_user: root
   tasks:
-    - name: Wait until all Kubernetes nodes are Ready
-      command: kubectl get nodes -o json --kubeconfig /home/root/admin.kubeconfig
+    - name: Wait until exactly 2 Kubernetes nodes are Ready
+      command: "kubectl get nodes -o json --kubeconfig $HOME/admin.kubeconfig"
       register: kubectl_nodes
       changed_when: false
       retries: 10
       delay: 10
-      until: >
-        ((kubectl_nodes.stdout | from_json)['items'] | length > 0) and
-        (
+      until:
+        - (kubectl_nodes.stdout | from_json)['items'] | length == 2
+        - >
           (
             (kubectl_nodes.stdout | from_json)['items']
             | map(attribute='status.conditions')
@@ -633,4 +633,3 @@
             | map('length')
             | min
           ) > 0
-        )

@@ -21,9 +21,20 @@ locals {
   provisioning = "STANDARD"
   dns_zone = "kubernetes.local."
   dns_name = google_dns_managed_zone.dns_zone.name
+
+  cluster_cidr = "10.240.0.0/16"
+  pod_cidr = "10.200.0.0/16"
+
+  worker_count = 2
+  non_worker_nodes_count = 2
+  gateway_ip = 1 # skip the 0.0.0.1 because the network uses as gateway
+
   worker_nodes = {
-    "node-1" = "10.200.2.0/4",
-    "node-2" = "10.200.3.0/4"
+    for i in range(local.worker_count) :
+    "node-${i}" => {
+      vm_ip = cidrhost(local.cluster_cidr, i + 1 + local.gateway_ip + local.non_worker_nodes_count),
+      pod_ipcidr = cidrsubnet(local.pod_cidr, 8, i + 1 + local.non_worker_nodes_count),
+    }
   }
 }
 
@@ -41,9 +52,12 @@ module "bastion" {
   startup_script = file("${path.module}/bootstrap_search_domain.sh")
   network = google_compute_network.network.id
   service_account_email = google_service_account.default.email
-  ip_cidr = "10.200.0.0/24"
+  pod_ip_cidr = cidrsubnet(local.pod_cidr, 8, 1)
+  vm_ip = cidrhost(local.cluster_cidr, 2)
   dns_zone = local.dns_zone
   dns_name = local.dns_name
+  subnetwork = google_compute_subnetwork.subnet.id
+  network_name = google_compute_network.network.name
 }
 
 module "server" {
@@ -53,9 +67,12 @@ module "server" {
   username = local.username
   network = google_compute_network.network.id
   service_account_email = google_service_account.default.email
-  ip_cidr = "10.200.1.0/24"
+  pod_ip_cidr = cidrsubnet(local.pod_cidr, 8, 1)
+  vm_ip = cidrhost(local.cluster_cidr, 3)
   dns_zone = local.dns_zone
   dns_name = local.dns_name
+  subnetwork = google_compute_subnetwork.subnet.id
+  network_name = google_compute_network.network.name
 }
 
 module "worker_nodes" {
@@ -66,14 +83,22 @@ module "worker_nodes" {
   username = local.username
   network = google_compute_network.network.id
   service_account_email = google_service_account.default.email
-  ip_cidr = each.value
+  pod_ip_cidr = each.value.pod_ipcidr
+  vm_ip = each.value.vm_ip
   dns_zone = local.dns_zone
   dns_name = local.dns_name
+  subnetwork = google_compute_subnetwork.subnet.id
+  network_name = google_compute_network.network.name
 }
 
 resource "google_compute_network" "network" {
   name                    = "k8s-network"
   auto_create_subnetworks = false
+}
+resource "google_compute_subnetwork" "subnet" {
+  name                    = "k8s-subnet"
+  ip_cidr_range = local.cluster_cidr
+  network = google_compute_network.network.id
 }
 
 resource "google_compute_router" "router" {
@@ -136,8 +161,7 @@ resource "ansible_host" "bastion" {
   groups = ["bastion"]
 
   variables = {
-    external_ip  = module.bastion.external_ip
-    ansible_host = module.bastion.internal_ip
+    ansible_host = module.bastion.external_ip
   }
 }
 resource "ansible_host" "server" {
@@ -146,6 +170,7 @@ resource "ansible_host" "server" {
 
   variables = {
     ansible_host = module.server.internal_ip 
+    subnet = module.server.pod_ip_cidr
   }
 }
 resource "ansible_host" "node" {
@@ -155,7 +180,7 @@ resource "ansible_host" "node" {
 
   variables = {
     ansible_host = each.value.internal_ip
-    subnet       = each.value.ip_cidr
+    subnet       = each.value.pod_ip_cidr
   }
 }
 
@@ -167,6 +192,6 @@ resource "ansible_group" "k8s_internal_nodes" {
   name = "k8s_internal_nodes"
   variables = {
     # This might not be necessary to pass `-i id_ed25519` since the ansible.cfg already has it
-    ansible_ssh_common_args = "-o ProxyCommand=\"ssh -i id_ed25519 -p 22 -W %h:%p -q ${module.bastion.external_ip}\""
+    ansible_ssh_common_args = "-o StrictHostKeyChecking=accept-new -o ProxyCommand=\"ssh -i id_ed25519 -o StrictHostKeyChecking=accept-new -p 22 -W %h:%p -q ${module.bastion.external_ip}\""
   }
 }

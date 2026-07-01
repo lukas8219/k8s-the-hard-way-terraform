@@ -12,16 +12,19 @@ variable "public_key" {}
 variable "username" {}
 variable "service_account_email" {}
 variable "network" {}
+variable "network_name" {}
+variable "subnetwork" {}
 variable "startup_script" {
   default = null
 }
 variable "has_public_ip" {
   default = false
 }
-variable "ip_cidr" {}
 variable "name" {}
 variable "dns_name" {}
 variable "dns_zone" {}
+variable "pod_ip_cidr" {}
+variable "vm_ip" {}
 
 resource "google_compute_instance" "node" {
   name         = var.name ## how to generate a better name
@@ -34,6 +37,8 @@ resource "google_compute_instance" "node" {
     automatic_restart           = false
     instance_termination_action = "STOP"
   }
+
+  can_ip_forward = true
 
   desired_status = "RUNNING"
 
@@ -54,7 +59,7 @@ resource "google_compute_instance" "node" {
 
   network_interface {
     network    = var.network 
-    subnetwork = google_compute_subnetwork.node.id
+    subnetwork = var.subnetwork
     network_ip = google_compute_address.internal.address
 
     access_config {
@@ -69,16 +74,11 @@ resource "google_compute_instance" "node" {
   }
 }
 
-resource "google_compute_subnetwork" "node" {
-  name          = "${var.name}-subnet"
-  ip_cidr_range = var.ip_cidr
-  network       = var.network
-}
 resource "google_compute_address" "internal" {
   name         = "${var.name}-internal"
-  subnetwork   = google_compute_subnetwork.node.id
+  subnetwork   = var.subnetwork
   address_type = "INTERNAL"
-  address      = cidrhost(var.ip_cidr, 2)
+  address      = var.vm_ip
 }
 resource "google_compute_address" "external" {
   count = var.has_public_ip ? 1 : 0
@@ -96,18 +96,23 @@ resource "google_dns_record_set" "node" {
   rrdatas = [google_compute_address.internal.address]
 }
 
+resource "google_compute_route" "node" {
+  name        = "${var.name}-network-route"
+  dest_range  = var.pod_ip_cidr 
+  network     = var.network_name
+  next_hop_ip = var.vm_ip
+  priority    = 100
+}
+
 output "external_ip" {
   value = var.has_public_ip ? google_compute_address.external[0].address : null
 }
 output "internal_ip" {
   value = google_compute_address.internal.address
 }
-output "subnet_id" {
-  value = google_compute_subnetwork.node.id
-}
 output "name" {
   value = var.name
 }
-output "ip_cidr" {
-  value = var.ip_cidr
+output "pod_ip_cidr" {
+  value = var.pod_ip_cidr
 }

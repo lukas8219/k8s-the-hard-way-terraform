@@ -10,3 +10,7 @@ inventory:
 	ansible-inventory --graph --vars
 playbook:
 	ansible-playbook playbook.yaml
+galaxy:
+	ansible-galaxy collection install -r requirements.yml
+
+all: gen-keys tf galaxy ping playbook

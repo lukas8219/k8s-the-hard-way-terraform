@@ -12,6 +12,8 @@ The idea is to trasnform Kelsey Hightowwer KTHW into something fully automated
 - kubectl (for n0w)
 - openssl
 - python3.10
+- gcloud
+- make
 
 ### How to
 ```bash
@@ -20,6 +22,7 @@ gcloud init
 gcloud auth application-default login
 make gen-keys
 make tf
+make galaxy
 make ping
 make playbook
 # or simply make
