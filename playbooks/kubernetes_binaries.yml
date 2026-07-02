@@ -61,5 +61,3 @@ binary_mapping:
     - runc
     - crictl
     - cni-plugins
-kubernetes_folders:
-  - /var/lib/kubernetes/

@@ -19,14 +19,8 @@
     - ./playbooks/kubernetes_binaries.yml
   tasks:
     - name: Set host architecture
-      ansible.builtin.set_fact:
-        host_arch: >-
-          {{
-            {
-              'x86_64': 'amd64',
-              'aarch64': 'arm64',
-              'arm64': 'arm64'
-            }[ansible_architecture]
-          }}
+      include_tasks: ./playbooks/set_host_architecture.yml
+    - name: containerd
+      include_tasks: ./playbooks/containerd/playbook.yml
     - name: kubelet
       include_tasks: ./playbooks/kubelet/playbook.yml

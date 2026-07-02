@@ -22,7 +22,6 @@
       template: ../pki/worker.conf.j2
       ip: "{{ ansible_host }}"
 - name: Generate Kubeconfig Certificate
-  include_tasks: ../generate_kubeconfig.yml
   include_tasks:
     file: ../generate_kubeconfig.yml
     apply:
@@ -35,6 +34,19 @@
     owner: root
     group: root
     mode: 0700
+- name: Stat kubeconfig file
+  become: yes
+  ansible.builtin.stat:
+    path: /var/lib/kubelet/kubeconfig
+  register: kubeconfig_file
+
+- name: Assert kubeconfig file was written
+  ansible.builtin.assert:
+    that:
+      - kubeconfig_file.stat.exists
+      - kubeconfig_file.stat.size > 0
+    fail_msg: "/var/lib/kubelet/kubeconfig is empty on {{ inventory_hostname }}"
+
 - name: Install Kubelet Certificate
   become: yes
   copy:
@@ -46,6 +58,7 @@
     - { src: "{{ hostvars['localhost']['generated_cert_crt'] }}", dest: '/var/lib/kubelet/kubelet.crt' }
     - { src: "{{ root_ca_crt }}", dest: '/var/lib/kubelet/ca.crt' }
     - { src: './kubelet.service', dest: '/etc/systemd/system/kubelet.service'}
+    - { src: './kubelet-config.yaml', dest: '/var/lib/kubelet/kubelet-config.yaml'}
 - name: Install SystemD Service
   systemd_service:
     name: kubelet
