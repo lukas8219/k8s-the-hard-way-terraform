@@ -1,0 +1,20 @@
+[{{ item.name }}]
+distinguished_name = {{ item.name }}_distinguished_name
+prompt             = no
+req_extensions     = {{ item.name }}_req_extensions
+
+[{{ item.name }}_req_extensions]
+basicConstraints     = CA:FALSE
+extendedKeyUsage     = clientAuth, serverAuth
+keyUsage             = critical, digitalSignature, keyEncipherment
+nsCertType           = client
+nsComment            = "{{ item.name }} Certificate"
+subjectAltName       = DNS:{{ item.name }}, IP:127.0.0.1, IP:{{ item.ip }}
+subjectKeyIdentifier = hash
+
+[{{ item.name }}_distinguished_name]
+CN = system:node:{{ item.name }}
+O  = system:nodes
+C  = US
+ST = Washington
+L  = Seattle

@@ -1,0 +1,20 @@
+[kube-proxy]
+distinguished_name = kube-proxy_distinguished_name
+prompt             = no
+req_extensions     = kube-proxy_req_extensions
+
+[kube-proxy_req_extensions]
+basicConstraints     = CA:FALSE
+extendedKeyUsage     = clientAuth, serverAuth
+keyUsage             = critical, digitalSignature, keyEncipherment
+nsCertType           = client
+nsComment            = "Kube Proxy Certificate"
+subjectAltName       = DNS:kube-proxy, IP:127.0.0.1
+subjectKeyIdentifier = hash
+
+[kube-proxy_distinguished_name]
+CN = system:kube-proxy
+O  = system:node-proxier
+C  = US
+ST = Washington
+L  = Seattle

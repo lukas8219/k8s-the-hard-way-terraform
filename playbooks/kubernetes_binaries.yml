@@ -1,0 +1,63 @@
+---
+  # {{ url | basename }} to /tmp/ . untar if necessary. remove tempfolder
+binaries:
+  - url: "https://dl.k8s.io/v1.32.3/bin/linux/{{ host_arch }}/kubectl"
+    binary: kubectl
+    path: /usr/local/bin/
+  - url: "https://dl.k8s.io/v1.32.3/bin/linux/{{ host_arch }}/kube-apiserver"
+    binary: kube-apiserver
+    path: /usr/local/bin/
+  - url: "https://dl.k8s.io/v1.32.3/bin/linux/{{ host_arch }}/kube-controller-manager"
+    binary: kube-controller-manager
+    path: /usr/local/bin/
+  - url: "https://dl.k8s.io/v1.32.3/bin/linux/{{ host_arch }}/kube-scheduler"
+    binary: kube-scheduler
+    path: /usr/local/bin/
+  - url: "https://dl.k8s.io/v1.32.3/bin/linux/{{ host_arch }}/kube-proxy"
+    binary: kube-proxy
+    path: /usr/local/bin/
+    conf_path: /var/lib/kube-proxy
+  - url: "https://dl.k8s.io/v1.32.3/bin/linux/{{ host_arch }}/kubelet"
+    binary: kubelet
+    path: /usr/local/bin/
+    conf_path: /var/lib/kubelet
+  - url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.32.0/crictl-v1.32.0-linux-{{ host_arch }}.tar.gz"
+    binary: crictl
+    path: /usr/local/bin/
+  - url: "https://github.com/opencontainers/runc/releases/download/v1.3.0-rc.1/runc.{{ host_arch }}"
+    binary: runc
+    path: /usr/local/bin/
+  - url: "https://github.com/containernetworking/plugins/releases/download/v1.6.2/cni-plugins-linux-{{ host_arch }}-v1.6.2.tgz"
+    binary: bridge
+    path: /opt/cni/plugins/
+    conf_path: /etc/cni/net.d/
+  - url: "https://github.com/containerd/containerd/releases/download/v2.1.0-beta.0/containerd-2.1.0-beta.0-linux-{{ host_arch }}.tar.gz"
+    binary: containerd
+    path: /bin/
+    conf_path: /etc/containerd/
+    extra_binaries:
+      - containerd-shim-runc-v2
+      - containerd-stress
+  - url: "https://github.com/etcd-io/etcd/releases/download/v3.6.0-rc.3/etcd-v3.6.0-rc.3-linux-{{ host_arch }}.tar.gz"
+    binary: etcd
+    path: /usr/local/bin/
+    extra_binaries:
+      - etcdctl
+    # {{ url | basename }} to /tmp/ . untar if necessary. remove tempfolder
+binary_mapping:
+  control-plane:
+    - kubectl  
+    - kube-apiserver
+    - kube-controller-manager
+    - etcd
+    - etcdctl
+    - kube-scheduler
+  worker-nodes:
+    - kubectl
+    - kube-apiserver
+    - kubelet
+    - kube-proxy
+    - kube-scheduler
+    - runc
+    - crictl
+    - cni-plugins

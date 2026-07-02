@@ -1,0 +1,121 @@
+---
+- name: Download and install binary/archive
+  block:
+    - name: Create tmp download dir
+      tempfile:
+        suffix: downloads
+        state: directory
+      register: tmp_download
+
+    - name: Set install vars "{{ item.url | basename }}"
+      set_fact:
+        is_archive: "{{ item.url | basename is match('.*\\.(tar\\.gz|tgz)$') }}"
+        archive_name: "{{ item.url | basename }}"
+        download_path: "{{ tmp_download.path }}/{{ item.url | basename }}"
+        install_binaries: "{{ [item.binary] + (item.extra_binaries | default([])) }}"
+
+    - name: Create tmp extract dir
+      ansible.builtin.tempfile:
+        suffix: extract
+        state: directory
+      register: tmp_extract
+      when: is_archive
+
+    - name: Ensure destination directory exists
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Stat installed binaries
+      ansible.builtin.stat:
+        path: "{{ item.path }}/{{ install_binary }}"
+      loop: "{{ install_binaries }}"
+      loop_control:
+        loop_var: install_binary
+      register: installed_binary_stats
+
+    - name: Decide if install is needed
+      ansible.builtin.set_fact:
+        install_needed: >-
+          {{
+            installed_binary_stats.results
+            | selectattr('stat.exists', 'equalto', false)
+            | list
+            | length > 0
+          }}
+
+    - name: Download file with curl
+      ansible.builtin.command:
+        cmd: "curl -L --fail --silent --show-error -o {{ download_path | quote }} {{ item.url | quote }}"
+        creates: "{{ download_path }}"
+      when: install_needed
+
+    - name: Install direct binary
+      ansible.builtin.copy:
+        src: "{{ download_path }}"
+        dest: "{{ item.path }}/{{ item.binary }}"
+        remote_src: true
+        mode: "0755"
+      when:
+        - install_needed
+        - not is_archive
+
+    - name: Extract archive into tmp folder
+      ansible.builtin.unarchive:
+        src: "{{ download_path }}"
+        dest: "{{ tmp_extract.path }}"
+        remote_src: true
+      when:
+        - install_needed
+        - is_archive
+
+    - name: Find binaries in extracted archive
+      ansible.builtin.find:
+        paths: "{{ tmp_extract.path }}"
+        file_type: file
+        recurse: true
+        patterns: "{{ install_binaries }}"
+      register: extracted_binaries
+      when:
+        - install_needed
+        - is_archive
+
+    - name: Assert all expected binaries were found
+      ansible.builtin.assert:
+        that:
+          - found_binaries | sort == install_binaries | sort
+        fail_msg: "Not all expected binaries were found in {{ archive_name }}. Expected={{ install_binaries }}, found={{ found_binaries }}"
+      vars:
+        found_binaries: "{{ extracted_binaries.files | map(attribute='path') | map('basename') | unique | list }}"
+      when:
+        - install_needed
+        - is_archive
+
+    - name: Copy binaries from extracted archive
+      ansible.builtin.copy:
+        src: "{{ extracted_binary.path }}"
+        dest: "{{ item.path }}/{{ extracted_binary.path | basename }}"
+        remote_src: true
+        mode: "0755"
+      loop: "{{ extracted_binaries.files }}"
+      loop_control:
+        loop_var: extracted_binary
+      when:
+        - install_needed
+        - is_archive
+
+  always:
+    - name: Remove tmp download dir
+      ansible.builtin.file:
+        path: "{{ tmp_download.path }}"
+        state: absent
+      when: tmp_download is defined
+
+    - name: Remove tmp extract dir
+      ansible.builtin.file:
+        path: "{{ tmp_extract.path }}"
+        state: absent
+      when:
+        - tmp_extract is defined
+        - tmp_extract.path is defined
