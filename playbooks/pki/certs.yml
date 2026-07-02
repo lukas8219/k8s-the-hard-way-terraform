@@ -1,0 +1,72 @@
+- name: Ensure ./certs folder exists
+  register: file_check
+  stat:
+    path: ./certs
+- name: Fail if the file does not exist
+  fail:
+    msg: "certs folder does not exist or is not an directory"
+  when:
+    - file_check.stat.exists
+    - not file_check.stat.isdir
+- name: Read the default_req_extensions 
+  set_fact:
+    default_req_extensions: "{{ lookup('ansible.builtin.template', './playbooks/pki/default_req_extensions.conf.j2') }}"
+- name: Generate Certificate Conf
+  set_fact:
+    conf: "{{ lookup('ansible.builtin.template', item.template) }}"
+- name: Debug Conf
+  debug:
+    var: conf
+- name: Generate Certificates
+  # when: certs_folder.changed FIXME Ensure we don't re-run this
+  module_defaults:
+    command:
+      chdir: ./certs
+  block:
+    - name: Generate Private Key
+      command:
+        cmd: openssl genrsa -out "{{ item.name }}.key" 4096
+        creates: "{{ item.name }}.key"
+    - name: Generate CSR
+      command:
+        creates: "{{ item.name }}.csr"
+        argv:
+          - openssl
+          - req
+          - -new
+          - -key
+          - "{{ item.name }}.key"
+          - -sha256
+          - -config
+          - /dev/stdin
+          - -section
+          - "{{ item.name }}"
+          - -out
+          - "{{ item.name }}.csr"
+        stdin: "{{ conf }}"
+    - name: Sign the Certificate Sign Request
+      command:
+        creates: "{{ item.name }}.crt"
+        argv:
+          - openssl
+          - x509
+          - -req
+          - -days
+          - "3653"
+          - -in
+          - "{{ item.name }}.csr"
+          - -copy_extensions
+          - copyall
+          - -sha256
+          - -CA
+          - ca.crt
+          - -CAkey
+          - ca.key
+          - -CAcreateserial
+          - -out
+          - "{{ item.name }}.crt"
+    - name: Export generated cert paths
+      set_fact:
+        generated_cert_key: "./certs/{{ item.name }}.key"
+        generated_cert_csr: "./certs/{{ item.name }}.csr"
+        generated_cert_crt: "./certs/{{ item.name }}.crt"

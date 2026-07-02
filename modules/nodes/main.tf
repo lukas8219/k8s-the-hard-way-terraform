@@ -8,6 +8,9 @@ terraform {
   }
 }
 
+variable "machine_type" {
+  default = "e2-standard-2"
+}
 variable "public_key" {}
 variable "username" {}
 variable "service_account_email" {}
@@ -28,7 +31,7 @@ variable "vm_ip" {}
 
 resource "google_compute_instance" "node" {
   name         = var.name ## how to generate a better name
-  machine_type = "e2-micro"
+  machine_type = var.machine_type
   zone         = "southamerica-east1-b"
 
   scheduling {

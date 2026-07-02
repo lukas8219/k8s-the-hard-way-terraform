@@ -1,0 +1,10 @@
+---
+- name: Download and Install Binary {{ binary }}
+  include_tasks: ./download_binaries.yml
+  vars:
+    item: >-
+      {{
+        binaries
+        | selectattr('binary', 'equalto', binary)
+        | first
+      }}

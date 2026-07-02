@@ -1,0 +1,30 @@
+[kube-api-server]
+distinguished_name = kube-api-server_distinguished_name
+prompt             = no
+req_extensions     = kube-api-server_req_extensions
+
+[kube-api-server_req_extensions]
+basicConstraints     = CA:FALSE
+extendedKeyUsage     = clientAuth, serverAuth
+keyUsage             = critical, digitalSignature, keyEncipherment
+nsCertType           = client, server
+nsComment            = "Kube API Server Certificate"
+subjectAltName       = @kube-api-server_alt_names
+subjectKeyIdentifier = hash
+
+[kube-api-server_alt_names]
+IP.0  = 127.0.0.1
+IP.1  = 10.32.0.1
+DNS.0 = kubernetes
+DNS.1 = kubernetes.default
+DNS.2 = kubernetes.default.svc
+DNS.3 = kubernetes.default.svc.cluster
+DNS.4 = kubernetes.svc.cluster.local
+DNS.5 = server.kubernetes.local
+DNS.6 = api-server.kubernetes.local
+
+[kube-api-server_distinguished_name]
+CN = kubernetes
+C  = US
+ST = Washington
+L  = Seattle
