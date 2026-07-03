@@ -24,3 +24,9 @@
       include_tasks: ./playbooks/containerd/playbook.yml
     - name: kubelet
       include_tasks: ./playbooks/kubelet/playbook.yml
+    - name: kube-proxy
+      include_tasks: ./playbooks/kube-proxy/playbook.yml
+    - name: kube-scheduler
+      include_tasks: ./playbooks/kube-scheduler/playbook.yml
+    - name: kube-api-server
+      include_tasks: ./playbooks/kube-api-server/playbook.yml

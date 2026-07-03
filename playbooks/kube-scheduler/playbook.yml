@@ -1,11 +1,12 @@
+
 ---
 - name: Install
   include_tasks: ./playbooks/install_single_binary.yml
   vars:
-    binary: 'kubelet'
+    binary: 'kube-scheduler'
 - name: Create kubelet folder
   file:
-    path: '/var/lib/kubelet/'
+    path: '/var/lib/kubernetes/'
     owner: root
     group: root
     mode: 0700
@@ -18,13 +19,12 @@
       become: no
   vars:
     item:
-      name: "{{ ansible_hostname }}"
-      template: ../pki/worker.conf.j2
-      ip: "{{ ansible_host }}"
+      name: "kube-scheduler"
+      template: ../pki/kube-scheduler.conf.j2
 - name: Generate Kubeconfig Certificate
   vars:
-    cert_crt_path: "{{ certs[ansible_hostname]['crt'] }}"
-    cert_key_path: "{{ certs[ansible_hostname]['key'] }}"
+    cert_crt_path: "{{ certs['kube-scheduler']['crt'] }}"
+    cert_key_path: "{{ certs['kube-scheduler']['key'] }}"
   include_tasks:
     file: ../generate_kubeconfig.yml
     apply:
@@ -33,26 +33,21 @@
 - name: Create kubeconfig file
   copy:
     content: "{{ kubeconfig }}"
-    dest: "/var/lib/kubelet/kubeconfig"
+    dest: "/var/lib/kubernetes/kube-scheduler.kubeconfig"
     owner: root
     group: root
     mode: 0700
-
-- name: Install Kubelet Certificate
+- name: Install File Assets
   become: yes
   copy:
     src: "{{ item.src }}" #FIXME how to receive the generate_certificate path?
     dest: "{{ item.dest }}"
     mode: 0700
   loop:
-    - { src: "{{ certs[ansible_hostname]['crt'] }}", dest: '/var/lib/kubelet/kubelet.key' }
-    - { src: "{{ certs[ansible_hostname]['crt'] }}", dest: '/var/lib/kubelet/kubelet.crt' }
-    - { src: "{{ root_ca_crt }}", dest: '/var/lib/kubelet/ca.crt' }
-    - { src: './kubelet.service', dest: '/etc/systemd/system/kubelet.service'}
-    - { src: './kubelet-config.yaml', dest: '/var/lib/kubelet/kubelet-config.yaml'}
+    - { src: './kube-scheduler.service', dest: '/etc/systemd/system/kube-scheduler.service'}
 - name: Install SystemD Service
   systemd_service:
-    name: kubelet
+    name: kube-scheduler
     enabled: true
     state: started
     daemon_reload: true

@@ -2,10 +2,10 @@
 - name: Install
   include_tasks: ./playbooks/install_single_binary.yml
   vars:
-    binary: 'kubelet'
+    binary: 'kube-proxy'
 - name: Create kubelet folder
   file:
-    path: '/var/lib/kubelet/'
+    path: '/var/lib/kube-proxy/'
     owner: root
     group: root
     mode: 0700
@@ -18,13 +18,12 @@
       become: no
   vars:
     item:
-      name: "{{ ansible_hostname }}"
-      template: ../pki/worker.conf.j2
-      ip: "{{ ansible_host }}"
+      name: "kube-proxy"
+      template: ../pki/kube-proxy.conf.j2
 - name: Generate Kubeconfig Certificate
   vars:
-    cert_crt_path: "{{ certs[ansible_hostname]['crt'] }}"
-    cert_key_path: "{{ certs[ansible_hostname]['key'] }}"
+    cert_crt_path: "{{ certs['kube-proxy']['crt'] }}"
+    cert_key_path: "{{ certs['kube-proxy']['key'] }}"
   include_tasks:
     file: ../generate_kubeconfig.yml
     apply:
@@ -33,26 +32,21 @@
 - name: Create kubeconfig file
   copy:
     content: "{{ kubeconfig }}"
-    dest: "/var/lib/kubelet/kubeconfig"
+    dest: "/var/lib/kube-proxy/kubeconfig"
     owner: root
     group: root
     mode: 0700
-
-- name: Install Kubelet Certificate
+- name: Install File Assets
   become: yes
   copy:
     src: "{{ item.src }}" #FIXME how to receive the generate_certificate path?
     dest: "{{ item.dest }}"
     mode: 0700
   loop:
-    - { src: "{{ certs[ansible_hostname]['crt'] }}", dest: '/var/lib/kubelet/kubelet.key' }
-    - { src: "{{ certs[ansible_hostname]['crt'] }}", dest: '/var/lib/kubelet/kubelet.crt' }
-    - { src: "{{ root_ca_crt }}", dest: '/var/lib/kubelet/ca.crt' }
-    - { src: './kubelet.service', dest: '/etc/systemd/system/kubelet.service'}
-    - { src: './kubelet-config.yaml', dest: '/var/lib/kubelet/kubelet-config.yaml'}
+    - { src: './kube-proxy.service', dest: '/etc/systemd/system/kube-proxy.service'}
 - name: Install SystemD Service
   systemd_service:
-    name: kubelet
+    name: kube-proxy
     enabled: true
     state: started
     daemon_reload: true

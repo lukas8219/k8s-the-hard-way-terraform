@@ -67,6 +67,16 @@
           - "{{ item.name }}.crt"
     - name: Export generated cert paths
       set_fact:
-        generated_cert_key: "./certs/{{ item.name }}.key"
-        generated_cert_csr: "./certs/{{ item.name }}.csr"
-        generated_cert_crt: "./certs/{{ item.name }}.crt"
+        certs: >-
+          {{
+            certs | default({}) | combine({
+              item.name: {
+                'key': './certs/' ~ item.name ~ '.key',
+                'csr': './certs/' ~ item.name ~ '.csr',
+                'crt': './certs/' ~ item.name ~ '.crt',
+              }
+            })
+          }}
+    - name: Debug certs
+      debug:
+        var: certs

@@ -1,0 +1,64 @@
+---
+- name: Install
+  include_tasks: ./playbooks/install_single_binary.yml
+  vars:
+    binary: 'kube-controller-manager'
+- name: Create kubelet folder
+  file:
+    path: '/var/lib/kubernetes/'
+    owner: root
+    group: root
+    mode: 0700
+    state: directory
+- name: Generate kube-controller-manager Certificate
+  include_tasks:
+    file: ../pki/certs.yml
+    apply:
+      delegate_to: localhost
+      become: no
+  loop:
+    - name: "kube-controller-manager"
+      template: ../pki/kube-controller-manager.conf.j2
+    - name: service-accounts
+      template: ../pki/sevice-accounts.conf.j2
+- name: Generate Kubeconfig Certificate
+  include_tasks:
+    vars:
+      cert_crt_path: "{{ hostvars['localhost']['certs']['kube-controller-manager']['crt'] }}"
+    file: ../generate_kubeconfig.yml
+    apply:
+      delegate_to: localhost
+      become: no
+- name: Create kubeconfig file
+  copy:
+    content: "{{ kubeconfig }}"
+    dest: "/var/lib/kubernetes/kube-controller-manager.kubeconfig"
+    owner: root
+    group: root
+    mode: 0700
+- name: Install Kubelet Certificate
+  become: yes
+  copy:
+    src: "{{ item.src }}" #FIXME how to receive the generate_certificate path?
+    dest: "{{ item.dest }}"
+    mode: 0700
+  loop:
+    - { src: "{{ hostvars['localhost']['certs']['service-accounts']['key'] }}", dest: '/var/lib/kubernetes/service-accounts.key' }
+    - { src: "{{ hostvars['localhost']['certs']['service-accounts']['crt'] }}", dest: '/var/lib/kubernetes/service-accounts.crt' }
+    - { src: "{{ root_ca_crt }}", dest: '/var/lib/kubernetes/ca.crt' }
+    - { src: "{{ root_ca_key }}", dest: '/var/lib/kubernetes/ca.key' }
+    - { src: './kube-controller-manager.service.j2', dest: '/etc/systemd/system/kube-controller-manager.service'}
+- name: Install Kube Controller Manager Service
+  template:
+    src: './kube-controller-manager.service.j2' 
+    dest: '/etc/systemd/system/kube-controller-manager.service'
+    mode: 0700
+  vars:
+    cluster_cidr: '10.200.0.0/24'
+- name: Install SystemD Service
+  systemd_service:
+    name: kube-controller-manager 
+    enabled: true
+    state: started
+    daemon_reload: true
+  
