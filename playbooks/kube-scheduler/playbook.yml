@@ -1,0 +1,29 @@
+
+---
+- name: Install
+  include_tasks: ./playbooks/install_single_binary.yml
+  vars:
+    binary: 'kube-scheduler'
+- name: Create kubelet folder
+  file:
+    path: '/etc/kubernetes/config/'
+    owner: root
+    group: root
+    mode: 0700
+    state: directory
+- name: Install File Assets
+  become: yes
+  copy:
+    src: "{{ item.src }}" #FIXME how to receive the generate_certificate path?
+    dest: "{{ item.dest }}"
+    mode: 0700
+  loop:
+    - { src: './kube-scheduler.service', dest: '/etc/systemd/system/kube-scheduler.service'}
+    - { src: './kube-scheduler.yaml', dest: '/etc/kubernetes/config/kube-scheduler.yaml'}
+- name: Install SystemD Service
+  systemd_service:
+    name: kube-scheduler
+    enabled: true
+    state: started
+    daemon_reload: true
+  

@@ -1,0 +1,58 @@
+---
+- name: Install
+  include_tasks: ./playbooks/install_single_binary.yml
+  vars:
+    binary: 'bridge'
+- name: Create kubelet folder
+  file:
+    path: '/etc/cni/net.d/'
+    owner: root
+    group: root
+    mode: 0700
+    state: directory
+- name: Install plugins
+  template:
+    src: "{{ item.path }}"
+    dest: "{{ item.dest }}"
+    mode: 0700
+  vars:
+    SUBNET: "{{ hostvars[ansible_hostname].subnet }}"
+  loop:
+    - path: ./10-bridge.conf
+      dest: "/etc/cni/net.d/"
+    - path: ./99-loopback.conf
+      dest: "/etc/cni/net.d/"
+- name: Install dependencies
+  vars:
+    dependencies:
+      - conntrack
+      - socat
+      - ipset
+      - kmod
+      - iptables
+      - nftables
+  apt:
+    name: "{{ dependencies }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  become: yes
+  become_user: root
+- name: Enable Kernel Module
+  community.general.modprobe:
+    name: br-netfilter
+    state: present
+  become: yes
+  become_user: root
+- name: Configure br-netfilter
+  shell:
+    cmd: |
+      mkdir -p /etc/modules-load.d/
+      echo "br-netfilter" >> /etc/modules-load.d/modules.conf
+      echo "net.bridge.bridge-nf-call-iptables = 1" \
+        >> /etc/sysctl.d/kubernetes.conf
+      echo "net.bridge.bridge-nf-call-ip6tables = 1" \
+        >> /etc/sysctl.d/kubernetes.conf
+      sysctl -p /etc/sysctl.d/kubernetes.conf
+  become: yes
+  become_user: root

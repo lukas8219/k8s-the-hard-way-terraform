@@ -1,0 +1,51 @@
+---
+- name: Install
+  include_tasks: ./playbooks/install_single_binary.yml
+  vars:
+    binary: 'kube-apiserver'
+- name: Create kubelet folder
+  file:
+    path: '/var/lib/kubernetes/'
+    owner: root
+    group: root
+    mode: 0700
+    state: directory
+- name: Generate kube-api-server Certificate
+  include_tasks:
+    file: ../pki/certs.yml
+    apply:
+      delegate_to: localhost
+      become: no
+  loop:
+    - name: "kube-api-server"
+      template: ../pki/kube-api-server.conf.j2
+      ip: "{{ hostvars['bastion'].ansible_host }}"
+    - name: service-accounts
+      template: ../pki/sevice-accounts.conf.j2
+- name: Add encryption config 
+  template:
+    src: './encryption-config.yaml' 
+    dest: '/var/lib/kubernetes/encryption-config.yaml'
+    mode: 0700
+  vars:
+    ENCRYPTION_KEY: "{{ lookup('ansible.builtin.env', 'ENCRYPTION_KEY') }}"
+- name: Install Kubelet Certificate
+  become: yes
+  copy:
+    src: "{{ item.src }}" #FIXME how to receive the generate_certificate path?
+    dest: "{{ item.dest }}"
+    mode: 0700
+  loop:
+    - { src: "{{ certs['kube-api-server']['key'] }}", dest: '/var/lib/kubernetes/kube-api-server.key' }
+    - { src: "{{ certs['kube-api-server']['crt'] }}", dest: '/var/lib/kubernetes/kube-api-server.crt' }
+    - { src: "{{ certs['service-accounts']['key'] }}", dest: '/var/lib/kubernetes/service-accounts.key' }
+    - { src: "{{ certs['service-accounts']['crt'] }}", dest: '/var/lib/kubernetes/service-accounts.crt' }
+    - { src: "{{ root_ca_crt }}", dest: '/var/lib/kubernetes/ca.crt' }
+    - { src: './kube-api-server.service', dest: '/etc/systemd/system/kube-api-server.service'}
+- name: Install SystemD Service
+  systemd_service:
+    name: kube-api-server
+    enabled: true
+    state: started
+    daemon_reload: true
+  

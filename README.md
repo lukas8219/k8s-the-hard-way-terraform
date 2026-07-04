@@ -17,6 +17,7 @@ The idea is to trasnform Kelsey Hightowwer KTHW into something fully automated
 
 ### How to
 ```bash
+export ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64)
 source .venv/bin/activate
 gcloud init
 gcloud auth application-default login

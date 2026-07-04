@@ -1,635 +1,118 @@
 ---
-- name: Download Assets in Bastion
+- name: PKI
   hosts: localhost
   tasks:
-    - name: Clone KTHW 
-      git:
-        repo: https://github.com/kelseyhightower/kubernetes-the-hard-way.git
-        dest: kubernetes-the-hard-way
-        depth: 1
-    - name: Pull Bastion Architecture
-      command: dpkg --print-architecture
-      register: arch
-      delegate_to: bastion
-    - name: Setup folder
+    - name: Setup CA
+      include_tasks: ./playbooks/pki/ca.yml
+- name: Configure Bastion
+  hosts: bastion
+  vars_files:
+    - ./playbooks/kubernetes_binaries.yml
+  vars:
+    root_ca_key: "{{ hostvars['localhost']['generated_root_ca_key']}}"
+    root_ca_crt: "{{ hostvars['localhost']['generated_root_ca_crt']}}"
+  tasks:
+    - name: Assert required env var is set
+      assert:
+        that:
+          - lookup('ansible.builtin.env', 'ENCRYPTION_KEY') | length > 0
+        fail_msg: "ENCRYPTION_KEY must be set on the Ansible controller"
+        success_msg: "ENCRYPTION_KEY is set"
+    - name: Install
+      include_tasks: ./playbooks/install_single_binary.yml
+      vars:
+        binary: 'kubectl'
+    - name: Setup Admin Certificates
+      include_tasks:
+        file: ./playbooks/pki/certs.yml
+        apply:
+          delegate_to: localhost
+          become: no
+      vars:
+        item:
+          name: admin
+          template: ./playbooks/pki/admin.conf.j2
+    - name: Generate the kubeconfig
+      include_tasks:
+        file: ./playbooks/generate_kubeconfig.yml
+        apply:
+          delegate_to: localhost
+          become: no
+      vars:
+        cert_crt_path: "{{ certs.admin.crt }}"
+        cert_key_path: "{{ certs.admin.key }}"
+    - name: Create folder for kubeconfig
       file:
-        path: ./downloads/{{ item }}
         state: directory
-        mode: '0755'
-      loop:
-        - client
-        - cni-plugins
-        - controller
-        - worker
-    - name: List Binaries to Download
-      slurp:
-        src: "kubernetes-the-hard-way/downloads-{{ arch.stdout }}.txt"
-      register: download_list
-    - name: Download Binaries
-      get_url:
-        url: "{{ item }}"
-        dest: ./downloads
-        mode: '0644'
-      loop: "{{ (download_list['content'] | b64decode).splitlines() }}"
-    - name: Untar and Install Binaries
-      shell:
-        cmd: |
-            tar -xvf downloads/crictl-v1.32.0-linux-{{ arch.stdout }}.tar.gz \
-              -C downloads/worker/
-            tar -xvf downloads/containerd-2.1.0-beta.0-linux-{{ arch.stdout }}.tar.gz \
-              --strip-components 1 \
-              -C downloads/worker/
-            tar -xvf downloads/cni-plugins-linux-{{ arch.stdout }}-v1.6.2.tgz \
-              -C downloads/cni-plugins/
-            tar -xvf downloads/etcd-v3.6.0-rc.3-linux-{{ arch.stdout }}.tar.gz \
-              -C downloads/ \
-              --strip-components 1 \
-              etcd-v3.6.0-rc.3-linux-{{ arch.stdout }}/etcdctl \
-              etcd-v3.6.0-rc.3-linux-{{ arch.stdout }}/etcd
-    - name: Separate Binaries in Proper Folder
-      copy:
-        src: downloads/{{ item.src }}
-        remote_src: yes
-        dest: >-
-          {{
-            'downloads/' ~ item.dest
-            if (item.skip_append | default(false) | bool)
-            else 'downloads/' ~ item.dest ~ '/' ~ item.src
-          }}
-      loop:
-        - { src: 'etcdctl' , dest: 'client'}
-        - { src: 'kubectl' , dest: 'client'}
-        - { src: 'etcd' , dest: 'controller'}
-        - { src: 'kube-apiserver' , dest: 'controller'}
-        - { src: 'kube-controller-manager' , dest: 'controller'}
-        - { src: 'kube-scheduler' , dest: 'controller'}
-        - { src: 'kubelet' , dest: 'worker'}
-        - { src: 'kube-proxy' , dest: 'worker'}
-        - { src: 'runc.{{ arch.stdout }}' , dest: 'worker/runc', skip_append: 'true' }
-    - name: Make downloaded binaries executable
-      file:
-        path: downloads
-        recurse: yes
-        mode: 0755
-    - name: Copy Kubectl to Bastion
-      copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
-        mode: "{{ item.mode | default('0700') }}"
         owner: root
         group: root
+        mode: 0700
+        path: "/root/.kube/"
       become: yes
-      become_user: root
-      delegate_to: bastion
-      loop:
-        - src: downloads/client/kubectl
-          dest: /usr/local/bin/
-          mode: '0755'
-- name: Setup Self-Signed Certificate Authority
-  hosts: localhost
-  tasks:
-    - name: Create Certs folder
-      register: certs_folder
-      file:
-        path: ./certs
-        state: directory
-        mode: '0755'
-    - name: Create Certificates
-      module_defaults:
-        shell:
-          chdir: ./certs
-      when: certs_folder.changed
-      block:
-        - name: Generate the Private Key
-          shell:
-            cmd: "openssl genrsa -out ca.key 4096"
-        - name: Generate CA
-          shell:
-            cmd: |
-              #!/bin/bash
-              openssl req -x509 -new -sha512 -noenc \
-                -key ca.key -days 3653 \
-                -config ../kubernetes-the-hard-way/ca.conf \
-                -out ca.crt
-        - name: Generate All Certificates
-          shell:
-            cmd: |
-              openssl genrsa -out "{{ item }}.key" 4096
-              openssl req -new -key "{{ item }}.key" -sha256 \
-                -config "../kubernetes-the-hard-way/ca.conf" -section  {{ item }} \
-                -out "{{ item }}.csr"
-              openssl x509 -req -days 3653 -in "{{ item }}.csr" \
-                -copy_extensions copyall \
-                -sha256 -CA "ca.crt" \
-                -CAkey "ca.key" \
-                -CAcreateserial \
-                -out "{{ item }}.crt"
-          loop:
-            - admin
-            - node-0 # We need to sum the vars {{ list + list }} to dynamically generate this
-            - node-1
-            - kube-proxy
-            - kube-scheduler
-            - kube-controller-manager
-            - kube-api-server
-            - service-accounts
-- name: Configure Kubelet in Worker Nodes
-  hosts: worker-nodes
-  tasks:
-    - name: Create /var/lib/kubelet
-      become: true
-      become_user: root
-      file:
-        path: /var/lib/kubelet
-        state: directory
-        mode: '0755'
-    - name: Copy Certificates
+    - name: Install kubeconfig
+      copy:
+        content: "{{ kubeconfig }}"
+        dest: "/root/.kube/config"
       become: yes
-      become_user: root
-      block:
-      - name: Copy CA
-        copy:
-          src: ./certs/ca.crt
-          dest: /var/lib/kubelet/ca.crt
-      - name: Copy Cert
-        copy:
-          src: "./certs/{{ ansible_facts['hostname'] }}.crt"
-          dest: /var/lib/kubelet/kubelet.crt
-      - name: Copy Private Key
-        copy:
-          src: "./certs/{{ ansible_facts['hostname'] }}.key"
-          dest: /var/lib/kubelet/kubelet.key
-- name: Configure Control Plane Certificates
-  hosts: control-plane
+- name: Configure Control Plane
+  hosts: control-plane 
   become: yes
-  become_user: root
+  vars:
+    root_ca_key: "{{ hostvars['localhost']['generated_root_ca_key']}}"
+    root_ca_crt: "{{ hostvars['localhost']['generated_root_ca_crt']}}"
+  vars_files:
+    - ./playbooks/kubernetes_binaries.yml
   tasks:
-    - name: Copy all Certificates
-      copy:
-        src: "./certs/{{ item }}"
-        dest: ~/
-        owner: root
-        group: root
-        mode: '0644'
-      loop:
-        - ca.crt
-        - ca.key
-        - kube-api-server.crt
-        - kube-api-server.key
-        - service-accounts.crt
-        - service-accounts.key
-- name: Generate Kube Config
-  hosts: localhost
-  tasks:
-    - name: Generate Kube Config
-      module_defaults:
-        shell:
-          chdir: ./certs
-      shell:
-        cmd: |
-          kubectl config set-cluster kubernetes-the-hard-way \
-          --certificate-authority=ca.crt \
-          --embed-certs=true \
-          --server=https://server.kubernetes.local:6443 \
-          --kubeconfig={{ item.host }}.kubeconfig
-
-          kubectl config set-credentials {{ item.prefix | default("") }}{{ item.host }} \
-            --client-certificate={{ item.host }}.crt \
-            --client-key={{ item.host }}.key \
-            --embed-certs=true \
-            --kubeconfig={{ item.host }}.kubeconfig
-
-          kubectl config set-context default \
-            --cluster=kubernetes-the-hard-way \
-            --user={{ item.prefix | default("") }}{{ item.host }} \
-            --kubeconfig={{ item.host }}.kubeconfig
-
-          kubectl config use-context default \
-            --kubeconfig={{ item.host }}.kubeconfig
-      loop:
-        - { host: 'node-0', prefix: 'system:node:' }
-        - { host: 'node-1', prefix: 'system:node:' }
-        - { host: 'admin' }
-        - { host: 'kube-scheduler', prefix: 'system:' }
-        - { host: 'kube-controller-manager', prefix: 'system:' }
-        - { host: 'kube-proxy', prefix: 'system:' }
-    - name: Copy Client stuff to Bastion
-      copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
-      delegate_to: bastion
-      become: yes
-      become_user: root
-      loop:
-        - src: certs/admin.kubeconfig
-          dest: ~/admin.kubeconfig
-- name: Distributed Kube Config 
+    - name: Set host architecture
+      include_tasks: ./playbooks/set_host_architecture.yml
+    - name: kube-scheduler
+      include_tasks: ./playbooks/kube-scheduler/playbook.yml
+    - name: kube-api-server
+      include_tasks: ./playbooks/kube-api-server/playbook.yml
+    - name: cni-plugins
+      include_tasks: ./playbooks/cni-plugins/playbook.yml
+    - name: kube-controller-manager
+      include_tasks: ./playbooks/kube-controller-manager/playbook.yml
+    - name: etcd
+      include_tasks: ./playbooks/etcd/playbook.yml
+- name: Configure Workers
   hosts: worker-nodes
-  tasks:
-    - name: Create /var/lib/kubelet
-      become: true
-      become_user: root
-      file:
-        path: /var/lib/kubelet
-        state: directory
-        mode: '0755'
-    - name: Create /var/lib/kube-proxy
-      become: true
-      become_user: root
-      file:
-        path: /var/lib/kube-proxy
-        state: directory
-        mode: '0755'
-    - name: Copy Kube-Config
-      become: yes
-      become_user: root
-      block:
-      - name: Copy Kube Proxy
-        copy:
-          src: "./certs/kube-proxy.kubeconfig"
-          dest: /var/lib/kube-proxy/kube-proxy.kubeconfig
-      - name: Copy {{ ansible_facts['hostname'] }} Kube Config
-        copy:
-          src: "./certs/{{ ansible_facts['hostname'] }}.kubeconfig"
-          dest: "/var/lib/kubelet/{{ ansible_facts['hostname'] }}.kubeconfig"
-- name: Configure Control-Plane KubeConfig 
-  hosts: control-plane
   become: yes
-  become_user: root
-  tasks:
-    - name: Copy {{ item }}
-      copy:
-        src: "./certs/{{ item }}"
-        dest: ~/
-        owner: root
-        group: root
-        mode: '0644'
-      loop:
-        - admin.kubeconfig
-        - kube-scheduler.kubeconfig
-        - kube-controller-manager.kubeconfig
-- name: Configure Encryption
-  hosts: localhost
-  tasks:
-    - name: Generate Encryption Key
-      command: openssl rand -base64 32
-      register: encryption_key
-    - name: Generate Config
-      shell: envsubst < kubernetes-the-hard-way/configs/encryption-config.yaml
-      register: encryption_config
-      environment:
-        ENCRYPTION_KEY: "{{ encryption_key.stdout | trim }}"
-    - name: Generate Kubernetes File
-      file:
-        path: /var/lib/kubernetes/
-        group: root
-        owner: root
-        mode: 755
-        state: directory
-      become: yes
-      become_user: root
-      delegate_to: "{{ groups['control-plane'][0] }}"
-    - name: Copy encription file
-      copy:
-        content: "{{ encryption_config.stdout }}"
-        dest: "/var/lib/kubernetes/encryption-config.yaml"
-        owner: root
-        group: root
-        mode: 0644
-        force: false
-      delegate_to: "{{ groups['control-plane'][0] }}"
-      become: yes
-- name: Install ETCD in Server (Bastion to Server)
-  hosts: localhost
   vars:
-    files:
-      - src: downloads/controller/etcd
-        dest: /usr/local/bin/
-        mode: '755'
-      - src: downloads/client/etcdctl
-        dest: /usr/local/bin/
-        mode: '755'
-      - src: "kubernetes-the-hard-way/units/etcd.service"
-        dest: /etc/systemd/system/etcd.service
-      - src: certs/ca.crt
-        dest: /etc/etcd/
-      - src: certs/kube-api-server.crt
-        dest: /etc/etcd/
-      - src: certs/kube-api-server.key
-        dest: /etc/etcd/
+    root_ca_key: "{{ hostvars['localhost']['generated_root_ca_key']}}"
+    root_ca_crt: "{{ hostvars['localhost']['generated_root_ca_crt']}}"
+  vars_files:
+    - ./playbooks/kubernetes_binaries.yml
   tasks:
-    - name: Create ETCD Folders
-      file:
-        path: /var/lib/etcd
-        state: directory
-        mode: '0700'
-      delegate_to: server
-      become: yes
-      become_user: root
-    - name: Copy files from localhost to server
-      copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
-        owner: root
-        group: root
-        mode: "{{ item.mode | default('0700') }}"
-      delegate_to: server
-      become: yes
-      become_user: root
-      loop: "{{ files }}"
-    - name: Enable Etcd
-      shell:
-        cmd: |
-          set -e;
-          systemctl daemon-reload
-          systemctl enable etcd
-          systemctl start etcd
-          etcdctl member list
-      delegate_to: server
-      become: yes
-      become_user: root
-- name: Boostrap Kubernetes Controllers
-  hosts: localhost
-  vars:
-    kubernetes_dir: /var/lib/kubernetes
-    nodes: "{{ groups['control-plane'] }}"
-    files:
-      - src: downloads/client/kubectl
-        dest: /usr/local/bin/
-        mode: '755'
-      - src: downloads/controller/kube-apiserver
-        dest: /usr/local/bin/
-        mode: '755'
-      - src: downloads/controller/kube-controller-manager
-        dest: /usr/local/bin/
-        mode: '755'
-      - src: downloads/controller/kube-scheduler
-        dest: /usr/local/bin/
-        mode: '755'
-      - src: "kubernetes-the-hard-way/units/kube-controller-manager.service"
-        dest: /etc/systemd/system/kube-controller-manager.service
-      - src: "kubernetes-the-hard-way/units/kube-apiserver.service"
-        dest: /etc/systemd/system/kube-apiserver.service
-      - src: "kubernetes-the-hard-way/units/kube-scheduler.service"
-        dest: /etc/systemd/system/kube-scheduler.service
-      - src: certs/ca.crt
-        dest: "{{ kubernetes_dir }}"
-      - src: certs/ca.key
-        dest: "{{ kubernetes_dir }}"
-      - src: certs/kube-api-server.crt
-        dest: "{{ kubernetes_dir }}"
-      - src: certs/kube-api-server.key
-        dest: "{{ kubernetes_dir }}"
-      - src: certs/service-accounts.key
-        dest: "{{ kubernetes_dir }}"
-      - src: certs/service-accounts.crt
-        dest: "{{ kubernetes_dir }}"
-      - src: certs/kube-api-server.key
-        dest: "{{ kubernetes_dir }}"
-      - src: certs/kube-controller-manager.kubeconfig
-        dest: "{{ kubernetes_dir }}"
-      - src: certs/kube-scheduler.kubeconfig
-        dest: "{{ kubernetes_dir }}"
-      - src: kubernetes-the-hard-way/configs/kube-scheduler.yaml
-        dest: /etc/kubernetes/config/
-      - src: kubernetes-the-hard-way/configs/kube-apiserver-to-kubelet.yaml
-        dest: kube-apiserver-to-kubelet.yaml
-      - src: certs/admin.kubeconfig
-        dest: admin.kubeconfig
-  tasks:
-    - name: Create Kubernetes Dir
-      file:
-        path: "{{ kubernetes_dir }}"
-        state: directory
-      delegate_to: "{{ item }}"
-      become: yes
-      become_user: root
-      loop: "{{ nodes }}"
-    - name: Copy files
-      copy:
-        src: "{{ item.1.src }}"
-        dest: "{{ item.1.dest }}"
-        mode: "{{ item.1.mode | default('0700') }}"
-      delegate_to: "{{ item.0 }}"
-      loop: "{{ nodes | product(files) | list }}"
-      become: yes
-      become_user: root
-    - name: Reload Systemd Daemon
-      systemd_service:
-        daemon_reload: true
-      become: yes
-      become_user: root
-      delegate_to: "{{ item }}"
-      loop: "{{ nodes }}"
-    - name: Start Services
+    - name: Set host architecture
+      include_tasks: ./playbooks/set_host_architecture.yml
+    - name: containerd
+      include_tasks: ./playbooks/containerd/playbook.yml
+    - name: kubelet
+      include_tasks: ./playbooks/kubelet/playbook.yml
+    - name: kube-proxy
+      include_tasks: ./playbooks/kube-proxy/playbook.yml
+    - name: kube-scheduler
+      include_tasks: ./playbooks/kube-scheduler/playbook.yml
+    - name: kube-api-server
+      include_tasks: ./playbooks/kube-api-server/playbook.yml
+    - name: cni-plugins
+      include_tasks: ./playbooks/cni-plugins/playbook.yml
+    - name: Install runc
+      include_tasks: ./playbooks/install_single_binary.yml
       vars:
-        nodes: "{{ groups['control-plane'] }}"
-        units:
-          - kube-apiserver
-          - kube-scheduler
-          - kube-controller-manager
-      systemd_service:
-        name: "{{ item.1 }}"
-        enabled: true
-        state: started
-      become: yes
-      become_user: root
-      delegate_to: "{{ item.0 }}"
-      loop: "{{ nodes | product(units) | list }}"
-    - name: Define RBAC
-      command: kubectl apply -f kube-apiserver-to-kubelet.yaml --kubeconfig admin.kubeconfig
-      become: yes
-      become_user: root
-      delegate_to: server
-- name: Configure Network on Worker Nodes
-  hosts: localhost
-  vars:
-    nodes: "{{ groups['worker-nodes'] }}"
-    bridge_file: "{{ lookup('file', 'kubernetes-the-hard-way/configs/10-bridge.conf') }}"
-    files:
-      - src: downloads/worker/crictl
-        dest: /usr/local/bin/
-        mode: 755
-      - src: downloads/worker/kubelet
-        dest: /usr/local/bin/
-        mode: 755
-      - src: downloads/worker/kube-proxy
-        dest: /usr/local/bin/
-        mode: 755
-      - src: downloads/worker/runc
-        dest: /usr/local/bin/
-        mode: 755
-      - src: downloads/worker/containerd
-        dest: /bin/
-        mode: 755
-      - src: downloads/worker/containerd-stress
-        dest: /bin/
-        mode: 755
-      - src: downloads/worker/containerd-shim-runc-v2
-        dest: /bin/
-        mode: 755
-      - src: downloads/cni-plugins/
-        dest: /opt/cni/bin
-        recurse: yes
-      # Folders and Configs
-      - src: kubernetes-the-hard-way/configs/containerd-config.toml
-        dest: /etc/containerd/config.toml
-      - src: kubernetes-the-hard-way/units/containerd.service
-        dest: /etc/systemd/system/
-      - src: kubernetes-the-hard-way/configs/kubelet-config.yaml
-        dest: /var/lib/kubelet/
-      - src: kubernetes-the-hard-way/units/kubelet.service
-        dest: /etc/systemd/system/
-      - src: kubernetes-the-hard-way/configs/kube-proxy-config.yaml
-        dest: /var/lib/kube-proxy/
-      - src: kubernetes-the-hard-way/units/kube-proxy.service
-        dest: /etc/systemd/system/
-      - src: certs/kube-proxy.kubeconfig
-        dest: /var/lib/kube-proxy/kubeconfig
-  tasks:
-    - name: Setup Worker Kubernetes Folders
-      vars:
-        folders:
-          - /var/lib/kube-proxy/
-          - /var/lib/kubelet/
-          - /etc/containerd/
-          - /etc/sysctl.d/
-          - /etc/modules-load.d/
-          - /etc/cni/net.d/
-          - /opt/cni/bin/
-          - /var/run/kubernetes
-          - /var/lib/kubernetes
-          - /cni-plugins/
-      file:
-        state: directory
-        owner: root
-        group: root
-        mode: 700
-        path: "{{ item.1 }}"
-      delegate_to: "{{ item.0 }}"
-      loop: "{{ nodes | product(folders) | list }}"
-      become: yes
-      become_user: root
-    - name: Configure CNI Subnet
-      copy:
-        content: "{{ lookup('file', 'kubernetes-the-hard-way/configs/10-bridge.conf') | replace('SUBNET', hostvars[item].subnet) }}"
-        dest: /etc/cni/net.d/10-bridge.conf
-        mode: 700
-      become: yes
-      become_user: root
-      loop: "{{ nodes }}"
-      delegate_to: "{{ item }}"
-    - name: Copy Loopback Config
-      copy:
-        src: kubernetes-the-hard-way/configs/99-loopback.conf
-        dest: /etc/cni/net.d/99-loopback.conf
-        mode: 700
-      become: yes
-      become_user: root
-      loop: "{{ nodes }}"
-      delegate_to: "{{ item }}"
-    - name: Install dependencies
-      vars:
-        dependencies:
-          - conntrack
-          - socat
-          - ipset
-          - kmod
-          - iptables
-          - nftables
-      apt:
-        name: "{{ dependencies }}"
-        state: present
-        update_cache: true
-        cache_valid_time: 3600
-      delegate_to: "{{ item }}"
-      loop: "{{ nodes }}"
-      become: yes
-      become_user: root
-      # disable swap persistent
-      # enable br-filter
-    - name: Copy All files to Worker Nodes
-      copy:
-        src: "{{ item.1.src }}"
-        dest: "{{ item.1.dest }}"
-        mode: "{{ item.1.mode | default('0700') }}"
-      delegate_to: "{{ item.0 }}"
-      loop: "{{ nodes | product(files) | list }}"
-      become: yes
-      become_user: root
-    - name: Copy Kubeconfig to Worker Nodes 
-      copy:
-        src: "certs/{{ item | regex_replace('_', '-') }}.kubeconfig"
-        dest: /var/lib/kubelet/kubeconfig 
-        owner: root
-        group: root
-      delegate_to: "{{ item }}"
-      loop: "{{ nodes }}"
-      become: yes
-      become_user: root
-    - name: Reload Systemd Daemon
-      systemd_service:
-        daemon_reload: true
-      become: yes
-      become_user: root
-      delegate_to: "{{ item }}"
-      loop: "{{ nodes }}"
-    - name: Start Services
-      vars:
-        units:
-          - kubelet
-          - containerd
-          - kube-proxy
-      systemd_service:
-        name: "{{ item.1 }}"
-        enabled: true
-        state: started
-      become: yes
-      become_user: root
-      delegate_to: "{{ item.0 }}"
-      loop: "{{ nodes | product(units) | list }}"
-    - name: Enable Kernel Module
-      community.general.modprobe:
-        name: br-netfilter
-        state: present
-      become: yes
-      become_user: root
-      delegate_to: "{{ item }}"
-      loop: "{{ nodes }}"
-    - name: Configure br-netfilter
-      shell:
-        cmd: |
-          mkdir -p /etc/modules-load.d/
-          echo "br-netfilter" >> /etc/modules-load.d/modules.conf
-          echo "net.bridge.bridge-nf-call-iptables = 1" \
-            >> /etc/sysctl.d/kubernetes.conf
-          echo "net.bridge.bridge-nf-call-ip6tables = 1" \
-            >> /etc/sysctl.d/kubernetes.conf
-          sysctl -p /etc/sysctl.d/kubernetes.conf
-      become: yes
-      become_user: root
-      delegate_to: "{{ item }}"
-      loop: "{{ nodes }}"
-- name: Ensure Kubernetes State
+        binary: 'runc'
+- name: Apply Kube API Server to Kubelet RBAC
   hosts: bastion
   become: yes
-  become_user: root
   tasks:
-    - name: Wait until exactly 2 Kubernetes nodes are Ready
-      command: "kubectl get nodes -o json --kubeconfig $HOME/admin.kubeconfig"
-      register: kubectl_nodes
-      changed_when: false
-      retries: 10
-      delay: 10
-      until:
-        - (kubectl_nodes.stdout | from_json)['items'] | length == 2
-        - >
-          (
-            (kubectl_nodes.stdout | from_json)['items']
-            | map(attribute='status.conditions')
-            | map('selectattr', 'type', 'equalto', 'Ready')
-            | map('selectattr', 'status', 'equalto', 'True')
-            | map('list')
-            | map('length')
-            | min
-          ) > 0
+    - name: Read RBAC
+      delegate_to: localhost
+      slurp:
+        src: ./playbooks/kube-api-server-to-kubelet.yaml
+      register: rbac
+      become: no
+    - name: Run kubectl
+      command:
+        cmd: kubectl apply -f -
+        stdin: "{{ rbac.content | b64decode }}"

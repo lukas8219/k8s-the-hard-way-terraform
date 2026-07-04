@@ -1,0 +1,45 @@
+- name: Create Certs folder
+  register: certs_folder
+  file:
+    path: ./certs
+    state: directory
+    mode: '0755'
+- name: Create Certificates
+  module_defaults:
+    shell:
+      chdir: ./certs
+  # when: certs_folder.changed FIXME
+  block:
+    - name: Generate the ca.conf file
+      copy:
+        content: |
+          [req]
+          distinguished_name = req_distinguished_name
+          prompt             = no
+          x509_extensions    = ca_x509_extensions
+
+          [ca_x509_extensions]
+          basicConstraints = CA:TRUE
+          keyUsage         = cRLSign, keyCertSign
+          [req_distinguished_name]
+          C   = US
+          ST  = Washington
+          L   = Seattle
+          CN  = CA
+        dest: ./certs/ca.conf
+    - name: Generate the Private Key
+      shell:
+        cmd: "openssl genrsa -out ca.key 4096"
+        creates: ca.key
+    - name: Generate CA
+      shell:
+        cmd: |
+          openssl req -x509 -new -sha512 -noenc \
+            -key ca.key -days 3653 \
+            -config ca.conf \
+            -out ca.crt
+        creates: ca.crt
+    - name: Export generated CA paths
+      set_fact:
+        generated_root_ca_key: "{{ playbook_dir }}/certs/ca.key"
+        generated_root_ca_crt: "{{ playbook_dir }}/certs/ca.crt"
