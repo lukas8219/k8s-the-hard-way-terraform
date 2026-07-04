@@ -4,11 +4,77 @@
   tasks:
     - name: Setup CA
       include_tasks: ./playbooks/pki/ca.yml
-    - name: Setup Global Certificates
-      include_tasks: ./playbooks/pki/certs.yml
-      loop:
-        - name: admin
+- name: Configure Bastion
+  hosts: bastion
+  vars_files:
+    - ./playbooks/kubernetes_binaries.yml
+  vars:
+    root_ca_key: "{{ hostvars['localhost']['generated_root_ca_key']}}"
+    root_ca_crt: "{{ hostvars['localhost']['generated_root_ca_crt']}}"
+  tasks:
+    - name: Assert required env var is set
+      assert:
+        that:
+          - lookup('ansible.builtin.env', 'ENCRYPTION_KEY') | length > 0
+        fail_msg: "ENCRYPTION_KEY must be set on the Ansible controller"
+        success_msg: "ENCRYPTION_KEY is set"
+    - name: Install
+      include_tasks: ./playbooks/install_single_binary.yml
+      vars:
+        binary: 'kubectl'
+    - name: Setup Admin Certificates
+      include_tasks:
+        file: ./playbooks/pki/certs.yml
+        apply:
+          delegate_to: localhost
+          become: no
+      vars:
+        item:
+          name: admin
           template: ./playbooks/pki/admin.conf.j2
+    - name: Generate the kubeconfig
+      include_tasks:
+        file: ./playbooks/generate_kubeconfig.yml
+        apply:
+          delegate_to: localhost
+          become: no
+      vars:
+        cert_crt_path: "{{ certs.admin.crt }}"
+        cert_key_path: "{{ certs.admin.key }}"
+    - name: Create folder for kubeconfig
+      file:
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+        path: "/root/.kube/"
+      become: yes
+    - name: Install kubeconfig
+      copy:
+        content: "{{ kubeconfig }}"
+        dest: "/root/.kube/config"
+      become: yes
+- name: Configure Control Plane
+  hosts: control-plane 
+  become: yes
+  vars:
+    root_ca_key: "{{ hostvars['localhost']['generated_root_ca_key']}}"
+    root_ca_crt: "{{ hostvars['localhost']['generated_root_ca_crt']}}"
+  vars_files:
+    - ./playbooks/kubernetes_binaries.yml
+  tasks:
+    - name: Set host architecture
+      include_tasks: ./playbooks/set_host_architecture.yml
+    - name: kube-scheduler
+      include_tasks: ./playbooks/kube-scheduler/playbook.yml
+    - name: kube-api-server
+      include_tasks: ./playbooks/kube-api-server/playbook.yml
+    - name: cni-plugins
+      include_tasks: ./playbooks/cni-plugins/playbook.yml
+    - name: kube-controller-manager
+      include_tasks: ./playbooks/kube-controller-manager/playbook.yml
+    - name: etcd
+      include_tasks: ./playbooks/etcd/playbook.yml
 - name: Configure Workers
   hosts: worker-nodes
   become: yes
@@ -30,3 +96,23 @@
       include_tasks: ./playbooks/kube-scheduler/playbook.yml
     - name: kube-api-server
       include_tasks: ./playbooks/kube-api-server/playbook.yml
+    - name: cni-plugins
+      include_tasks: ./playbooks/cni-plugins/playbook.yml
+    - name: Install runc
+      include_tasks: ./playbooks/install_single_binary.yml
+      vars:
+        binary: 'runc'
+- name: Apply Kube API Server to Kubelet RBAC
+  hosts: bastion
+  become: yes
+  tasks:
+    - name: Read RBAC
+      delegate_to: localhost
+      slurp:
+        src: ./playbooks/kube-api-server-to-kubelet.yaml
+      register: rbac
+      become: no
+    - name: Run kubectl
+      command:
+        cmd: kubectl apply -f -
+        stdin: "{{ rbac.content | b64decode }}"

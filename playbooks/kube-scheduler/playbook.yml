@@ -6,37 +6,11 @@
     binary: 'kube-scheduler'
 - name: Create kubelet folder
   file:
-    path: '/var/lib/kubernetes/'
+    path: '/etc/kubernetes/config/'
     owner: root
     group: root
     mode: 0700
     state: directory
-- name: Generate Certificate
-  include_tasks:
-    file: ../pki/certs.yml
-    apply:
-      delegate_to: localhost
-      become: no
-  vars:
-    item:
-      name: "kube-scheduler"
-      template: ../pki/kube-scheduler.conf.j2
-- name: Generate Kubeconfig Certificate
-  vars:
-    cert_crt_path: "{{ certs['kube-scheduler']['crt'] }}"
-    cert_key_path: "{{ certs['kube-scheduler']['key'] }}"
-  include_tasks:
-    file: ../generate_kubeconfig.yml
-    apply:
-      delegate_to: localhost
-      become: no
-- name: Create kubeconfig file
-  copy:
-    content: "{{ kubeconfig }}"
-    dest: "/var/lib/kubernetes/kube-scheduler.kubeconfig"
-    owner: root
-    group: root
-    mode: 0700
 - name: Install File Assets
   become: yes
   copy:
@@ -45,6 +19,7 @@
     mode: 0700
   loop:
     - { src: './kube-scheduler.service', dest: '/etc/systemd/system/kube-scheduler.service'}
+    - { src: './kube-scheduler.yaml', dest: '/etc/kubernetes/config/kube-scheduler.yaml'}
 - name: Install SystemD Service
   systemd_service:
     name: kube-scheduler

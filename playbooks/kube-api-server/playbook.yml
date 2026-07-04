@@ -22,7 +22,13 @@
       ip: "{{ hostvars['bastion'].ansible_host }}"
     - name: service-accounts
       template: ../pki/sevice-accounts.conf.j2
-
+- name: Add encryption config 
+  template:
+    src: './encryption-config.yaml' 
+    dest: '/var/lib/kubernetes/encryption-config.yaml'
+    mode: 0700
+  vars:
+    ENCRYPTION_KEY: "{{ lookup('ansible.builtin.env', 'ENCRYPTION_KEY') }}"
 - name: Install Kubelet Certificate
   become: yes
   copy:

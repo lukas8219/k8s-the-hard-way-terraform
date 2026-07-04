@@ -1,0 +1,25 @@
+---
+- name: Install
+  include_tasks: ./playbooks/install_single_binary.yml
+  vars:
+    binary: 'etcd'
+- name: Create kubelet folder
+  file:
+    path: '/var/lib/etcd/'
+    owner: root
+    group: root
+    mode: 0700
+    state: directory
+- name: Install Kubelet Certificate
+  become: yes
+  copy:
+    src: './etcd.service'
+    dest: '/etc/systemd/system/etcd.service'
+    mode: 0700
+- name: Install SystemD Service
+  systemd_service:
+    name: etcd 
+    enabled: true
+    state: started
+    daemon_reload: true
+  

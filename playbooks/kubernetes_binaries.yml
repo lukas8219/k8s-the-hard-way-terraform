@@ -29,8 +29,11 @@ binaries:
     path: /usr/local/bin/
   - url: "https://github.com/containernetworking/plugins/releases/download/v1.6.2/cni-plugins-linux-{{ host_arch }}-v1.6.2.tgz"
     binary: bridge
-    path: /opt/cni/plugins/
+    path: /opt/cni/bin/
     conf_path: /etc/cni/net.d/
+    extra_binaries:
+      - loopback
+      - host-local
   - url: "https://github.com/containerd/containerd/releases/download/v2.1.0-beta.0/containerd-2.1.0-beta.0-linux-{{ host_arch }}.tar.gz"
     binary: containerd
     path: /bin/

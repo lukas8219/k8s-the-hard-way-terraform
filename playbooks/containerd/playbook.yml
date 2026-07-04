@@ -5,12 +5,10 @@
     binary: 'containerd'
 - name: Install Copy Service
   become: yes
-  copy:
-    src: "{{ item.src }}"
-    dest: "{{ item.dest }}"
+  template:
+    src: "./containerd.service"
+    dest: "/etc/systemd/system/containerd.service"
     mode: 0700
-  loop:
-    - { src: './containerd.service', dest: '/etc/systemd/system/containerd.service'}
 - name: Install SystemD Service
   systemd_service:
     name: containerd

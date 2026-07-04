@@ -45,7 +45,7 @@
     dest: "{{ item.dest }}"
     mode: 0700
   loop:
-    - { src: "{{ certs[ansible_hostname]['crt'] }}", dest: '/var/lib/kubelet/kubelet.key' }
+    - { src: "{{ certs[ansible_hostname]['key'] }}", dest: '/var/lib/kubelet/kubelet.key' }
     - { src: "{{ certs[ansible_hostname]['crt'] }}", dest: '/var/lib/kubelet/kubelet.crt' }
     - { src: "{{ root_ca_crt }}", dest: '/var/lib/kubelet/ca.crt' }
     - { src: './kubelet.service', dest: '/etc/systemd/system/kubelet.service'}

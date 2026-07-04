@@ -1,6 +1,8 @@
 ---
 - name: Download and install binary/archive
   block:
+    - name: Set host architecture
+      include_tasks: ./set_host_architecture.yml
     - name: Create tmp download dir
       tempfile:
         suffix: downloads
