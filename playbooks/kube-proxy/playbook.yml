@@ -43,6 +43,7 @@
     dest: "{{ item.dest }}"
     mode: 0700
   loop:
+    - { src: './kube-proxy-config.yaml', dest: '/var/lib/kube-proxy/kube-proxy-config.yaml'}
     - { src: './kube-proxy.service', dest: '/etc/systemd/system/kube-proxy.service'}
 - name: Install SystemD Service
   systemd_service:

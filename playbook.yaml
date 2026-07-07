@@ -6,6 +6,7 @@
       include_tasks: ./playbooks/pki/ca.yml
 - name: Configure Bastion
   hosts: bastion
+  become: yes
   vars_files:
     - ./playbooks/kubernetes_binaries.yml
   vars:
@@ -86,6 +87,12 @@
   tasks:
     - name: Set host architecture
       include_tasks: ./playbooks/set_host_architecture.yml
+    - name: cni-plugins
+      include_tasks: ./playbooks/cni-plugins/playbook.yml
+    - name: Install runc
+      include_tasks: ./playbooks/install_single_binary.yml
+      vars:
+        binary: 'runc'
     - name: containerd
       include_tasks: ./playbooks/containerd/playbook.yml
     - name: kubelet
@@ -98,10 +105,6 @@
       include_tasks: ./playbooks/kube-api-server/playbook.yml
     - name: cni-plugins
       include_tasks: ./playbooks/cni-plugins/playbook.yml
-    - name: Install runc
-      include_tasks: ./playbooks/install_single_binary.yml
-      vars:
-        binary: 'runc'
 - name: Apply Kube API Server to Kubelet RBAC
   hosts: bastion
   become: yes

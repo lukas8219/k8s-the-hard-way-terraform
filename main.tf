@@ -193,5 +193,6 @@ resource "ansible_group" "k8s_internal_nodes" {
   variables = {
     # This might not be necessary to pass `-i id_ed25519` since the ansible.cfg already has it
     ansible_ssh_common_args = "-o StrictHostKeyChecking=accept-new -o ProxyCommand=\"ssh -i id_ed25519 -o StrictHostKeyChecking=accept-new -p 22 -W %h:%p -q ${module.bastion.external_ip}\""
+    pod_cidr = local.pod_cidr
   }
 }

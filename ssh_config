@@ -1,0 +1,23 @@
+Host *
+  LogLevel INFO
+  TCPKeepAlive yes
+  Compression yes
+  ServerAliveInterval 60
+  AddKeysToAgent yes
+  ControlMaster no
+  IdentityFile ./id_ed25519
+  IdentitiesOnly yes
+    StrictHostKeyChecking no
+
+Host node-1
+    HostName 10.240.0.5
+    ProxyJump bastion
+Host node-2
+    HostName 10.240.0.4
+    ProxyJump bastion
+Host server
+    HostName 10.240.0.3
+    ProxyJump bastion
+
+Host bastion
+    HostName 35.199.78.219

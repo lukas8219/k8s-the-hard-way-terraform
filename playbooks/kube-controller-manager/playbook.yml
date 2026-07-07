@@ -55,7 +55,7 @@
     dest: '/etc/systemd/system/kube-controller-manager.service'
     mode: 0700
   vars:
-    cluster_cidr: '10.200.0.0/24'
+    pod_cidr: '10.200.0.0/16'
 - name: Install SystemD Service
   systemd_service:
     name: kube-controller-manager 

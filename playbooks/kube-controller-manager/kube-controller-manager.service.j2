@@ -5,7 +5,7 @@ Documentation=https://github.com/kubernetes/kubernetes
 [Service]
 ExecStart=/usr/local/bin/kube-controller-manager \
   --bind-address=0.0.0.0 \
-  --cluster-cidr={{ cluster_cidr }} \
+  --cluster-cidr={{ pod_cidr }} \
   --cluster-name=kubernetes \
   --cluster-signing-cert-file=/var/lib/kubernetes/ca.crt \
   --cluster-signing-key-file=/var/lib/kubernetes/ca.key \
